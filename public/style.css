@@ -1,0 +1,239 @@
+body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: #f4f6f8;
+    margin: 0;
+    color: #2c3e50;
+}
+
+/* HEADER */
+.header {
+    background: #1f2a44;
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.header img {
+    max-width: 220px;
+}
+
+/* CONTENEDOR */
+.container {
+    max-width: 600px;
+    margin: 20px auto;
+    background: white;
+    padding: 90px;
+    border-radius: 12px;
+    box-shadow: 0px 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+/* TITULOS */
+h2,
+h3 {
+    color: #1f2a44;
+    margin-bottom: 8px;
+}
+
+/* INPUTS */
+input,
+textarea,
+select {
+    width: 100%;
+    padding: 11px;
+    margin: 6px 0;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    transition: all 0.2s ease;
+}
+
+input:focus,
+textarea:focus {
+    border-color: #2e86c1;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(46, 134, 193, 0.1);
+}
+
+/* BOTONES */
+button {
+    width: 100%;
+    padding: 11px;
+    background: linear-gradient(135deg, #2e86c1, #1b4f72);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    margin-top: 10px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.2s ease;
+}
+
+button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+/* TARJETAS */
+.card {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 15px;
+    margin: 12px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
+    border-left: 6px solid #2e86c1;
+    transition: all 0.2s ease;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+}
+
+/* DESTACADO */
+.primera {
+    background: #e8f8f5;
+    color: #0e6655;
+    padding: 5px 8px;
+    border-radius: 6px;
+    display: inline-block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.card.primera-card {
+    border-left: 6px solid #27ae60;
+    background: #f0fff5;
+}
+
+/* SEPARADOR */
+hr {
+    margin: 25px 0;
+    border: none;
+    border-top: 1px solid #eee;
+}
+
+/* TOAST */
+.toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #2e86c1;
+    color: white;
+    padding: 12px 18px;
+    border-radius: 10px;
+    box-shadow: 0px 6px 14px rgba(0, 0, 0, 0.2);
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: all 0.3s ease;
+    z-index: 999;
+    font-weight: bold;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast.error {
+    background: #e74c3c;
+}
+
+.toast.success {
+    background: #27ae60;
+}
+
+/* COMENTARIOS */
+.comentario-box {
+    background-color: #f4f6f7;
+    border-left: 4px solid #3498db;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.comentario-titulo {
+    font-weight: bold;
+    margin-bottom: 4px;
+    color: #2980b9;
+}
+
+/* MODAL */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 350px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+}
+
+.modal textarea {
+    width: 100%;
+    margin-top: 10px;
+}
+
+.modal-buttons {
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+}
+
+/* DASHBOARD */
+.dashboard {
+    max-width: 700px;
+    margin: 30px auto;
+}
+
+/* USUARIOS */
+.card-user {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    margin: 10px 0;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* BADGES */
+.badge {
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.badge.admin {
+    background: #f39c12;
+    color: white;
+}
+
+.badge.vendedora {
+    background: #3498db;
+    color: white;
+}
+
+/* BOTON LOGOUT */
+body>button {
+    max-width: 220px;
+    margin: 30px auto;
+    display: block;
+    background: #e74c3c;
+}
+
+body>button:hover {
+    background: #c0392b;
+}

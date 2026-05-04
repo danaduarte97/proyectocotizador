@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Login</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="container">
+        <h2>Ingresar a Cotizador - Asismed</h2>
+
+        <input type="text" id="usuario" placeholder="Usuario">
+        <input type="password" id="password" placeholder="Contraseña">
+
+        <button onclick="login()">Ingresar</button>
+    </div>
+
+    <script>
+        async function login() {
+            const usuario = document.getElementById("usuario").value;
+            const password = document.getElementById("password").value;
+        
+            const res = await fetch("/login", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ usuario, password })
+            });
+        
+            console.log("STATUS:", res.status);
+        
+            const data = await res.json();
+            console.log("RESPONSE:", data);
+        
+            if (res.ok) {
+                console.log("TOKEN:", data.token); // 👈 CLAVE
+        
+                localStorage.setItem("token", data.token);
+        
+                window.location.href = "/app.html";
+            } else {
+                alert("Usuario o contraseña incorrectos");
+            }
+        }
+        </script>
+
+
+</body>
+
+</html>
