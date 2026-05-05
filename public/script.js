@@ -190,6 +190,13 @@ async function agregar() {
 
     if (res.ok) {
         mostrarToast("Guardado", "success");
+
+        document.getElementById("nombre").value = "";
+        document.getElementById("celular").value = "";
+        document.getElementById("plan").value = "";
+        document.getElementById("valor").value = "";
+        document.getElementById("comentarios").value = "";
+
         buscar();
     } else {
         mostrarToast("Error", "error");
@@ -317,13 +324,18 @@ window.onload = function () {
         return;
     }
 
-    // ocultar cosas si no es admin
-    if (!esAdmin()) {
-        const btn = document.getElementById("btnCrearUsuario");
-        if (btn) btn.style.display = "none";
+    const payload = obtenerPayload();
 
-        const seccion = document.getElementById("seccionAdmin");
-        if (seccion) seccion.style.display = "none";
+    // mostrar usuario logueado
+    const user = document.getElementById("usuarioLogueado");
+    if (user) {
+        user.textContent = "👤 " + payload.usuario;
+    }
+
+    // si NO es admin oculta botón usuarios
+    if (!esAdmin()) {
+        const btnUsuarios = document.querySelector("button[onclick*='usuarios']");
+        if (btnUsuarios) btnUsuarios.style.display = "none";
     }
 
     cargarUsuarios();
@@ -351,4 +363,19 @@ function mostrarToast(mensaje, tipo = "success") {
     setTimeout(() => {
         toast.className = "toast";
     }, 3000);
+}
+
+function mostrarSeccion(seccion) {
+    const secciones = document.querySelectorAll(".seccion");
+
+    secciones.forEach(sec => {
+        sec.style.display = "none";
+    });
+
+    document.getElementById(seccion).style.display = "block";
+
+    // si es usuarios → cargar lista
+    if (seccion === "usuarios") {
+        cargarUsuarios();
+    }
 }
