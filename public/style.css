@@ -169,5 +169,75 @@ button:hover {
     transform: translateY(0);
   }
 }
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+/* SIDEBAR */
+.sidebar {
+  width: 220px;
+  background: linear-gradient(180deg, #1b4f72, #2e86c1);
+  color: white;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.sidebar h2 {
+  text-align: center;
+}
+.sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sidebar button {
+  background: transparent;
+  border: none;
+  color: white;
+  text-align: left;
+  padding: 10px;
+  border-radius: 8px;
+}
+.sidebar button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+.sidebar .logout {
+  background: #e74c3c;
+}
+
+/* MAIN */
+.main {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+/* TOPBAR */
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 20px;
+  font-weight: bold;
+}
+
+/* SECCIONES */
+.seccion {
+  display: block;
+}
+
+/* RESPONSIVE */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 70px;
+  }
+  .sidebar h2 {
+    display: none;
+  }
+  .sidebar button {
+    text-align: center;
+  }
+}
 
 /*# sourceMappingURL=style.css.map */

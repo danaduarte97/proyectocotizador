@@ -185,3 +185,81 @@ button {
         transform: translateY(0);
     }
 }
+
+.app {
+    display: flex;
+    height: 100vh;
+}
+
+/* SIDEBAR */
+.sidebar {
+    width: 220px;
+    background: linear-gradient(180deg, #1b4f72, #2e86c1);
+    color: white;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+
+    h2 {
+        text-align: center;
+    }
+
+    nav {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    button {
+        background: transparent;
+        border: none;
+        color: white;
+        text-align: left;
+        padding: 10px;
+        border-radius: 8px;
+
+        &:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+    }
+
+    .logout {
+        background: #e74c3c;
+    }
+}
+
+/* MAIN */
+.main {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+/* TOPBAR */
+.topbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 20px;
+    font-weight: bold;
+}
+
+/* SECCIONES */
+.seccion {
+    display: block;
+}
+
+/* RESPONSIVE */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 70px;
+
+        h2 {
+            display: none;
+        }
+
+        button {
+            text-align: center;
+        }
+    }
+}

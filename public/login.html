@@ -33,21 +33,24 @@
 
             console.log("STATUS:", res.status);
 
-            const data = await res.json();
+            let data;
+            try {
+                data = await res.json();
+            } catch {
+                alert("Error en el servidor");
+                return;
+            }
+
             console.log("RESPONSE:", data);
 
             if (res.ok) {
-                console.log("TOKEN:", data.token); // 👈 CLAVE
-
                 localStorage.setItem("token", data.token);
-
                 window.location.href = "/app.html";
             } else {
                 alert("Usuario o contraseña incorrectos");
             }
         }
     </script>
-
 
 </body>
 

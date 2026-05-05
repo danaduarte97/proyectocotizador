@@ -9,86 +9,82 @@
 
 <body>
 
-    <p id="usuarioLogueado"></p>
+    <div class="app">
 
-    <!--<div class="header">
-        <img src="logo.jpg" alt="Asismed"> ACA ESTA EL LOGO DE ASISMED!!!! 
-    </div>-->
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+            <h2>Asismed</h2>
 
-    <div class="container">
+            <nav>
+                <button onclick="mostrarSeccion('cotizador')">📊 Cotizador</button>
+                <button onclick="mostrarSeccion('usuarios')">👥 Usuarios</button>
+            </nav>
 
-        <h2>Buscar cliente por DNI</h2>
-        <input type="text" id="dni" placeholder="Ingresar DNI">
-        <button onclick="buscar()">Buscar</button>
+            <button class="logout" onclick="logout()">Cerrar sesión</button>
+        </aside>
 
-        <h3>Resultados</h3>
-        <div id="resultados"></div>
+        <!-- CONTENIDO -->
+        <main class="main">
 
-        <hr>
+            <!-- TOPBAR -->
+            <div class="topbar">
+                <span id="usuarioLogueado"></span>
+            </div>
 
-        <h3>Agregar nueva cotización</h3>
+            <!-- SECCIÓN COTIZADOR -->
+            <section id="cotizador" class="seccion">
 
-        <input type="text" id="nombre" placeholder="Nombre">
-        <input type="text" id="celular" placeholder="Celular">
-        <input type="text" id="plan" placeholder="Plan">
-        <input type="text" id="valor" placeholder="Valor">
-        <textarea id="comentarios" placeholder="Comentarios" rows="3"></textarea>
+                <div class="container">
+                    <h2>Buscar cliente</h2>
+                    <input type="text" id="dni" placeholder="DNI">
+                    <button onclick="buscar()">Buscar</button>
 
-        <button onclick="agregar()">Guardar cotización</button>
+                    <div id="resultados"></div>
+                </div>
+
+                <div class="container">
+                    <h3>Nueva cotización</h3>
+                    <input type="text" id="nombre" placeholder="Nombre">
+                    <input type="text" id="celular" placeholder="Celular">
+                    <input type="text" id="plan" placeholder="Plan">
+                    <input type="text" id="valor" placeholder="Valor">
+                    <textarea id="comentarios" placeholder="Comentarios"></textarea>
+
+                    <button onclick="agregar()">Guardar</button>
+                </div>
+
+            </section>
+
+            <!-- SECCIÓN USUARIOS -->
+            <section id="usuarios" class="seccion" style="display:none;">
+
+                <div class="container">
+                    <h2>Usuarios</h2>
+                    <div id="listaUsuarios"></div>
+                </div>
+
+                <div class="container" id="seccionAdmin">
+                    <h3>Crear usuario</h3>
+
+                    <input type="text" id="nuevoUsuario" placeholder="Usuario">
+                    <input type="text" id="nuevoPassword" placeholder="Contraseña">
+
+                    <select id="nuevoRol">
+                        <option value="vendedora">Asesora Call</option>
+                        <option value="admin">Admin</option>
+                    </select>
+
+                    <button onclick="crearUsuario()">Crear</button>
+                </div>
+
+            </section>
+
+        </main>
 
     </div>
 
-    <!-- 🔔 TOAST -->
+    <!-- TOAST -->
     <div id="toast" class="toast"></div>
-
-    <!-- 💬 MODAL COMENTARIO -->
-    <div id="modal" class="modal">
-        <div class="modal-content">
-            <h3>Editar comentario</h3>
-            <textarea id="modalComentario" rows="4"></textarea>
-            <div class="modal-buttons">
-                <button onclick="guardarComentario()">Guardar</button>
-                <button onclick="cerrarModalComentario()">Cancelar</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 👥 DASHBOARD -->
-    <div class="dashboard">
-        <h2>Panel de Administración</h2>
-
-        <h3>Usuarios</h3>
-        <div id="listaUsuarios"></div>
-
-        <div id="seccionAdmin" style="margin-top:30px;">
-            <h3>Crear usuario</h3>
-
-            <input type="text" id="nuevoUsuario" placeholder="Usuario">
-            <input type="text" id="nuevoPassword" placeholder="Contraseña">
-
-            <select id="nuevoRol">
-                <option value="vendedora">Asesora Call</option>
-                <option value="admin">Asesora Calle</option>
-            </select>
-
-            <button id="btnCrearUsuario" onclick="crearUsuario()">
-                Crear usuario
-            </button>
-        </div>
-
-        <!-- ✏️ MODAL EDITAR -->
-        <div id="modalEditar" class="modal">
-            <div class="modal-content">
-                <h3>Editar Usuario</h3>
-                <input id="editPassword" placeholder="Nueva contraseña">
-                <input id="editRol" placeholder="Rol (admin o vendedora)">
-                <button onclick="guardarEdicion()">Guardar</button>
-                <button onclick="cerrarModalEditar()">Cancelar</button>
-            </div>
-        </div>
-    </div>
-
-    <button onclick="logout()">Cerrar sesión</button>
 
     <script src="script.js"></script>
 
