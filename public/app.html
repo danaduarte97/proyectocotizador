@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Cotizador Asismed</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <p id="usuarioLogueado"></p>
+
+    <!--<div class="header">
+        <img src="logo.jpg" alt="Asismed"> ACA ESTA EL LOGO DE ASISMED!!!! 
+    </div>-->
+
+    <div class="container">
+
+        <h2>Buscar cliente por DNI</h2>
+        <input type="text" id="dni" placeholder="Ingresar DNI">
+        <button onclick="buscar()">Buscar</button>
+
+        <h3>Resultados</h3>
+        <div id="resultados"></div>
+
+        <hr>
+
+        <h3>Agregar nueva cotización</h3>
+
+        <input type="text" id="nombre" placeholder="Nombre">
+        <input type="text" id="celular" placeholder="Celular">
+        <input type="text" id="plan" placeholder="Plan">
+        <input type="text" id="valor" placeholder="Valor">
+        <textarea id="comentarios" placeholder="Comentarios" rows="3"></textarea>
+
+        <button onclick="agregar()">Guardar cotización</button>
+
+    </div>
+
+    <!-- 🔔 TOAST -->
+    <div id="toast" class="toast"></div>
+
+    <!-- 💬 MODAL COMENTARIO -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <h3>Editar comentario</h3>
+            <textarea id="modalComentario" rows="4"></textarea>
+            <div class="modal-buttons">
+                <button onclick="guardarComentario()">Guardar</button>
+                <button onclick="cerrarModalComentario()">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 👥 DASHBOARD -->
+    <div class="dashboard">
+        <h2>Panel de Administración</h2>
+
+        <h3>Usuarios</h3>
+        <div id="listaUsuarios"></div>
+
+        <div id="seccionAdmin" style="margin-top:30px;">
+            <h3>Crear usuario</h3>
+
+            <input type="text" id="nuevoUsuario" placeholder="Usuario">
+            <input type="text" id="nuevoPassword" placeholder="Contraseña">
+
+            <select id="nuevoRol">
+                <option value="vendedora">Asesora Call</option>
+                <option value="admin">Asesora Calle</option>
+            </select>
+
+            <button id="btnCrearUsuario" onclick="crearUsuario()">
+                Crear usuario
+            </button>
+        </div>
+
+        <!-- ✏️ MODAL EDITAR -->
+        <div id="modalEditar" class="modal">
+            <div class="modal-content">
+                <h3>Editar Usuario</h3>
+                <input id="editPassword" placeholder="Nueva contraseña">
+                <input id="editRol" placeholder="Rol (admin o vendedora)">
+                <button onclick="guardarEdicion()">Guardar</button>
+                <button onclick="cerrarModalEditar()">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <button onclick="logout()">Cerrar sesión</button>
+
+    <script src="script.js"></script>
+
+</body>
+
+</html>

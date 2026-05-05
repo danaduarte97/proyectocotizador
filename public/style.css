@@ -1,0 +1,173 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: linear-gradient(135deg, #eef2f7, #dfe9f3);
+  margin: 0;
+  color: #2c3e50;
+}
+
+/* NAVBAR */
+.navbar {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  padding: 15px 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+.navbar h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+/* CONTENEDOR */
+.container {
+  max-width: 600px;
+  margin: 30px auto;
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+  box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.1);
+  animation: fadeIn 0.5s ease;
+}
+
+/* INPUTS */
+input,
+textarea,
+select {
+  width: 100%;
+  padding: 12px;
+  margin: 8px 0;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  transition: 0.2s;
+}
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: #2e86c1;
+  box-shadow: 0 0 0 3px rgba(46, 134, 193, 0.15);
+  outline: none;
+}
+
+/* BOTONES */
+button {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #2e86c1, #1b4f72);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  margin-top: 10px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: 0.2s;
+}
+button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* TARJETAS */
+.card {
+  background: white;
+  border-radius: 14px;
+  padding: 15px;
+  margin: 12px 0;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  border-left: 5px solid #2e86c1;
+  animation: fadeIn 0.3s ease;
+}
+.card p {
+  margin: 5px 0;
+}
+
+/* DASHBOARD */
+.dashboard {
+  max-width: 700px;
+  margin: 40px auto;
+}
+
+/* USUARIOS */
+.card-user {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px;
+  margin: 10px 0;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* BADGES */
+.badge {
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.badge.admin {
+  background: #f39c12;
+  color: white;
+}
+.badge.vendedora {
+  background: #2e86c1;
+  color: white;
+}
+
+/* TOAST */
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 10px;
+  color: white;
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: 0.3s;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.toast.success {
+  background: #27ae60;
+}
+.toast.error {
+  background: #e74c3c;
+}
+
+/* MODAL */
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  justify-content: center;
+  align-items: center;
+}
+.modal .modal-content {
+  background: white;
+  padding: 20px;
+  border-radius: 14px;
+  width: 90%;
+  max-width: 400px;
+}
+
+/* ANIMACIONES */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*# sourceMappingURL=style.css.map */
