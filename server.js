@@ -6,6 +6,8 @@ const jwt = require("jsonwebtoken");
 
 const app = express();
 const SECRET = "secreto_ultra_seguro";
+const multer = require("multer");
+const path = require("path");
 
 // 👉 MIDDLEWARES
 app.use(cors());
@@ -14,6 +16,18 @@ app.use(express.static("public"));
 
 // 👉 BASE DE DATOS
 const db = new sqlite3.Database("./database.db");
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, "public/uploads/");
+    },
+
+    filename: (req, file, cb) => {
+        const unique = Date.now() + path.extname(file.originalname);
+        cb(null, unique);
+    }
+});
+
+const upload = multer({ storage });
 
 // 🔐 MIDDLEWARE TOKEN
 function verificarToken(req, res, next) {
@@ -49,12 +63,21 @@ db.serialize(() => {
         nombre TEXT,
         celular TEXT,
         plan TEXT,
+        tipo_cobertura TEXT,
         valor TEXT,
         vendedora TEXT,
         comentarios TEXT,
-        fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+        fecha DATETIME DEFAULT (datetime('now', '-3 hours'))
     )
     `);
+    db.run(`
+    ALTER TABLE cotizaciones
+    ADD COLUMN tipo_cobertura TEXT
+`, () => { });
+    db.run(`
+    ALTER TABLE cotizaciones
+    ADD COLUMN modalidad TEXT
+`, () => { });
 
     db.run(`
     CREATE TABLE IF NOT EXISTS usuarios (
@@ -71,6 +94,16 @@ db.serialize(() => {
     INSERT OR IGNORE INTO usuarios (usuario, password, rol)
     VALUES ('admin', ?, 'admin')
     `, [passwordHash]);
+
+    db.run(`
+CREATE TABLE IF NOT EXISTS archivos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cotizacion_id INTEGER,
+    nombre TEXT,
+    archivo TEXT,
+    fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+`);
 
 });
 
@@ -114,6 +147,7 @@ app.post("/login", (req, res) => {
     );
 });
 
+
 // 👉 HOME
 app.get("/", (req, res) => {
     res.sendFile(__dirname + "/public/login.html");
@@ -134,7 +168,16 @@ app.get("/buscar/:dni", verificarToken, (req, res) => {
 // 👉 AGREGAR
 app.post("/agregar", verificarToken, (req, res) => {
 
-    const { dni, nombre, celular, plan, valor, comentarios } = req.body;
+    const {
+        dni,
+        nombre,
+        celular,
+        plan,
+        tipo_cobertura,
+        valor,
+        modalidad,
+        comentarios
+    } = req.body;
     const vendedora = req.user.usuario;
 
     if (!dni) {
@@ -142,12 +185,62 @@ app.post("/agregar", verificarToken, (req, res) => {
     }
 
     db.run(
-        `INSERT INTO cotizaciones (dni, nombre, celular, plan, valor, vendedora, comentarios)
+        `INSERT INTO cotizaciones (dni, nombre, celular, plan, tipo_cobertura, valor, modalidad, vendedora, comentarios)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [dni, nombre, celular, plan, valor, vendedora, comentarios],
+        [
+            dni,
+            nombre,
+            celular,
+            plan,
+            tipo_cobertura,
+            valor,
+            modalidad,
+            vendedora,
+            comentarios
+        ],
         function (err) {
             if (err) return res.status(500).json(err);
             res.json({ success: true });
+        }
+    );
+});
+app.post(
+    "/subir-archivo/:id",
+    verificarToken,
+    upload.single("archivo"),
+    (req, res) => {
+
+        const cotizacionId = req.params.id;
+
+        if (!req.file) {
+            return res.status(400).json({ error: "Archivo requerido" });
+        }
+
+        db.run(
+            `INSERT INTO archivos (cotizacion_id, nombre, archivo)
+             VALUES (?, ?, ?)`,
+            [
+                cotizacionId,
+                req.file.originalname,
+                req.file.filename
+            ],
+            function (err) {
+                if (err) return res.status(500).json(err);
+
+                res.json({ success: true });
+            }
+        );
+    }
+);
+
+app.get("/archivos/:id", verificarToken, (req, res) => {
+
+    db.all(
+        "SELECT * FROM archivos WHERE cotizacion_id = ?",
+        [req.params.id],
+        (err, rows) => {
+            if (err) return res.status(500).json(err);
+            res.json(rows);
         }
     );
 });
@@ -286,6 +379,103 @@ app.put("/usuarios/:id", verificarToken, async (req, res) => {
 });
 
 // 👉 SERVIDOR
+app.put("/cambiar-password", verificarToken, async (req, res) => {
+
+    const { actual, nueva } = req.body;
+
+    if (!actual || !nueva) {
+        return res.status(400).json({
+            error: "Completá todos los campos"
+        });
+    }
+
+    db.get(
+        "SELECT * FROM usuarios WHERE usuario = ?",
+        [req.user.usuario],
+        async (err, user) => {
+
+            if (err) {
+                return res.status(500).json(err);
+            }
+
+            if (!user) {
+                return res.status(404).json({
+                    error: "Usuario no encontrado"
+                });
+            }
+
+            const coincide = await bcrypt.compare(
+                actual,
+                user.password
+            );
+
+            if (!coincide) {
+                return res.status(401).json({
+                    error: "Contraseña actual incorrecta"
+                });
+            }
+
+            const hash = await bcrypt.hash(nueva, 10);
+
+            db.run(
+                "UPDATE usuarios SET password = ? WHERE id = ?",
+                [hash, user.id],
+                function (err) {
+
+                    if (err) {
+                        return res.status(500).json(err);
+                    }
+
+                    res.json({
+                        success: true
+                    });
+                }
+            );
+        }
+    );
+});
 app.listen(3000, () => {
     console.log("Servidor corriendo en http://localhost:3000");
+});
+
+app.put("/cambiar-password", verificarToken, async (req, res) => {
+
+    const { actual, nueva } = req.body;
+
+    db.get(
+        "SELECT * FROM usuarios WHERE usuario = ?",
+        [req.user.usuario],
+        async (err, user) => {
+
+            if (err) {
+                return res.status(500).json(err);
+            }
+
+            const coincide = await bcrypt.compare(
+                actual,
+                user.password
+            );
+
+            if (!coincide) {
+                return res.status(401).json({
+                    error: "Contraseña actual incorrecta"
+                });
+            }
+
+            const hash = await bcrypt.hash(nueva, 10);
+
+            db.run(
+                "UPDATE usuarios SET password = ? WHERE id = ?",
+                [hash, user.id],
+                function (err) {
+
+                    if (err) {
+                        return res.status(500).json(err);
+                    }
+
+                    res.json({ success: true });
+                }
+            );
+        }
+    );
 });

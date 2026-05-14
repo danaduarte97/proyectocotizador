@@ -119,6 +119,48 @@ async function eliminarUsuario(id) {
     }
 }
 
+function formatearFecha(fecha) {
+
+    const f = new Date(fecha);
+
+    // corregir UTC → Argentina
+    f.setHours(f.getHours() - 3);
+
+    const ahora = new Date();
+
+    const mismoDia =
+        f.getDate() === ahora.getDate() &&
+        f.getMonth() === ahora.getMonth() &&
+        f.getFullYear() === ahora.getFullYear();
+
+    const ayer = new Date();
+    ayer.setDate(ahora.getDate() - 1);
+
+    const esAyer =
+        f.getDate() === ayer.getDate() &&
+        f.getMonth() === ayer.getMonth() &&
+        f.getFullYear() === ayer.getFullYear();
+
+    const hora = f.toLocaleTimeString("es-AR", {
+        hour: "2-digit",
+        minute: "2-digit"
+    });
+
+    if (mismoDia) {
+        return `Hoy ${hora}`;
+    }
+
+    if (esAyer) {
+        return `Ayer ${hora}`;
+    }
+
+    return f.toLocaleDateString("es-AR", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric"
+    }) + ` ${hora}`;
+}
+
 // =======================
 // 🔍 BUSCAR
 // =======================
@@ -151,21 +193,207 @@ async function buscar() {
     document.getElementById("celular").value = data[0].celular || "";
 
     data.forEach(c => {
-        div.innerHTML += `
-            <div class="card">
-                <p><b>Fecha:</b> ${new Date(c.fecha).toLocaleString()}</p>
-                <p><b>Vendedora:</b> ${c.vendedora}</p>
-                <p><b>Plan:</b> ${c.plan}</p>
-                <p><b>💲 Valor:</b> $${c.valor}</p>
 
-                <button onclick="abrirModal(${c.id}, \`${c.comentarios || ""}\`)">
+        div.innerHTML += `
+        <div class="card" id="card-${c.id}">
+
+            <!-- SOLO PDF -->
+            <div class="pdf-header solo-pdf">
+
+                <img
+                    src="/img/logo-asismed.jpg"
+                    class="logo-pdf"
+                >
+  <h2 class="titulo-pdf">
+                    
+                </h2>
+            </div>
+
+            <!-- DECORACIÓN -->
+            <div class="pdf-decoracion solo-pdf"></div>
+
+            <p class="fecha-card">
+                🕒 ${formatearFecha(c.fecha)}
+            </p>
+            <p><b>DNI:</b> ${c.dni}</p>
+            <p> <b>Teléfono:</b> ${c.celular || "-"}</p>
+
+            <p><b>Asesora:</b> ${c.vendedora}</p>
+
+            <p><b>Plan:</b> ${c.plan}</p>
+            <p>
+            
+            <b>Cobertura:</b> ${c.tipo_cobertura || "Individual"} </p>
+            
+
+            <p><b>Valor:</b> $${c.valor}</p>
+            <p>
+    <b>Modalidad:</b>
+    ${c.modalidad || "PARTICULAR"}
+</p>
+
+            <!-- NO PDF -->
+            <p class="no-pdf">
+                <b>💬 Comentario:</b>
+                ${c.comentarios || "Sin comentarios"}
+            </p>
+
+            <!-- NO PDF -->
+            <div class="archivos-box no-pdf">
+
+                <h4>📎 Adjuntos</h4>
+
+                <input
+                    type="file"
+                    onchange="subirArchivo(event, ${c.id})"
+                >
+
+                <div id="archivos-${c.id}"></div>
+
+            </div>
+
+            ${(c.vendedora === obtenerPayload().usuario || esAdmin()) ? `
+                <button
+                    class="no-pdf"
+                    onclick="abrirModal(${c.id}, \`${c.comentarios || ""}\`)"
+                >
                     Editar comentario
                 </button>
-            </div>
-        `;
+            ` : ""}
+
+            <button
+                class="no-pdf"
+                onclick="descargarPDF(${c.id})"
+            >
+                📄 Descargar PDF
+            </button>
+
+        </div>
+    `;
+
+        cargarArchivos(c.id);
     });
 }
 
+async function subirArchivo(event, cotizacionId) {
+
+    const file = event.target.files[0];
+
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("archivo", file);
+
+    const token = localStorage.getItem("token");
+
+    const res = await fetch(`/subir-archivo/${cotizacionId}`, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${token}`
+        },
+        body: formData
+    });
+
+    if (res.ok) {
+        mostrarToast("Archivo subido", "success");
+        buscar();
+    } else {
+        mostrarToast("Error al subir", "error");
+    }
+}
+async function cargarArchivos(cotizacionId) {
+
+    const res = await fetch(`/archivos/${cotizacionId}`, {
+        headers: authHeaders()
+    });
+
+    const archivos = await res.json();
+
+    const div = document.getElementById(`archivos-${cotizacionId}`);
+
+    div.innerHTML = "";
+
+    archivos.forEach(a => {
+
+        div.innerHTML += `
+            <a href="/uploads/${a.archivo}" target="_blank">
+                📎 ${a.nombre}
+            </a><br>
+        `;
+    });
+}
+async function descargarPDF(id) {
+
+    const card = document.getElementById(`card-${id}`);
+
+    if (!card) {
+        mostrarToast("No se encontró la cotización", "error");
+        return;
+    }
+
+    // ocultar elementos
+    const ocultos = card.querySelectorAll(".no-pdf");
+    // mostrar elementos solo PDF
+    const soloPdf = card.querySelectorAll(".solo-pdf");
+
+    soloPdf.forEach(el => {
+        el.style.display = "block";
+    });
+
+    ocultos.forEach(el => {
+        el.dataset.display = el.style.display;
+        el.style.display = "none";
+    });
+
+    // activar modo PDF
+    card.id = "card-pdf-mode";
+
+    mostrarToast("Generando PDF...", "success");
+    card.style.opacity = "1";
+
+    const canvas = await html2canvas(card, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        logging: false
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+
+    const { jsPDF } = window.jspdf;
+
+    const pdf = new jsPDF("p", "mm", "a4");
+
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+
+    const imgProps = pdf.getImageProperties(imgData);
+
+    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+    pdf.addImage(
+        imgData,
+        "PNG",
+        0,
+        0,
+        pdfWidth,
+        pdfHeight
+    );
+
+    pdf.save(`cotizacion-${id}.pdf`);
+
+    // restaurar card
+    card.id = `card-${id}`;
+
+    ocultos.forEach(el => {
+        el.style.display = el.dataset.display || "";
+    });
+    soloPdf.forEach(el => {
+        el.style.display = "none";
+    });
+    card.style.opacity = "";
+
+
+}
 // =======================
 // ➕ AGREGAR
 // =======================
@@ -176,7 +404,11 @@ async function agregar() {
         nombre: document.getElementById("nombre").value,
         celular: document.getElementById("celular").value,
         plan: document.getElementById("plan").value,
+        tipo_cobertura:
+            document.getElementById("tipoCobertura").value,
         valor: document.getElementById("valor").value,
+        modalidad:
+            document.getElementById("modalidad").value,
         comentarios: document.getElementById("comentarios").value
     };
 
@@ -377,5 +609,59 @@ function mostrarSeccion(seccion) {
     // si es usuarios → cargar lista
     if (seccion === "usuarios") {
         cargarUsuarios();
+    }
+}
+
+async function cambiarPassword() {
+
+    const actual =
+        document.getElementById("passwordActual").value;
+
+    const nueva =
+        document.getElementById("passwordNueva").value;
+
+    const res = await fetch("/cambiar-password", {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({
+            actual,
+            nueva
+        })
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+
+        mostrarToast(
+            "Contraseña actualizada",
+            "success"
+        );
+
+        document.getElementById("passwordActual").value = "";
+        document.getElementById("passwordNueva").value = "";
+
+    } else {
+
+        mostrarToast(
+            data.error || "Error",
+            "error"
+        );
+    }
+}
+
+function togglePassword(id, el) {
+
+    const input = document.getElementById(id);
+
+    if (input.type === "password") {
+
+        input.type = "text";
+        el.textContent = "🙈";
+
+    } else {
+
+        input.type = "password";
+        el.textContent = "👁️";
     }
 }

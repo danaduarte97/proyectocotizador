@@ -17,7 +17,17 @@
 
             <nav>
                 <button onclick="mostrarSeccion('cotizador')">📊 Cotizador</button>
-                <button id="btnUsuarios" onclick="mostrarSeccion('usuarios')">👥 Usuarios</button>
+
+                <button onclick="mostrarSeccion('biblioteca')">
+                    📁 Biblioteca
+                </button>
+
+                <button id="btnUsuarios" onclick="mostrarSeccion('usuarios')">
+                    👥 Usuarios
+                </button>
+                <button onclick="mostrarSeccion('perfil')">
+                    🔐 Mi contraseña
+                </button>
             </nav>
 
             <button class="logout" onclick="logout()">Cerrar sesión</button>
@@ -47,6 +57,14 @@
                     <input type="text" id="nombre" placeholder="Nombre">
                     <input type="text" id="celular" placeholder="Celular">
                     <input type="text" id="plan" placeholder="Plan">
+                    <select id="tipoCobertura">
+                        <option value="Individual">Cobertura individual</option>
+                        <option value="Grupo Familiar">Grupo familiar</option>
+                    </select>
+                    <select id="modalidad">
+                        <option value="PARTICULAR">PARTICULAR</option>
+                        <option value="RD OSTV">RD OSTV</option>
+                    </select>
                     <input type="text" id="valor" placeholder="Valor">
                     <textarea id="comentarios" placeholder="Comentarios"></textarea>
 
@@ -79,12 +97,127 @@
 
             </section>
 
+            <!-- SECCIÓN BIBLIOTECA -->
+            <section id="biblioteca" class="seccion" style="display:none;">
+
+                <div class="container">
+                    <h2>📁 Biblioteca</h2>
+
+                    <div class="card">
+                        <h3>📄 Accesos rápidos a la documentación</h3>
+
+                        <a href="archivos/Accesos-rapidos-a-la-documentacion.pdf" target="_blank">
+                            <button>Abrir</button>
+                        </a>
+                    </div>
+
+                    <div class="card">
+                        <h3>📄 Relevamiento de datos de salud</h3>
+
+                        <a href="archivos/Relevamiento-de-datos-de-salud.pdf" target="_blank">
+                            <button>Abrir</button>
+                        </a>
+                    </div>
+                    <div class="card">
+                        <h3>📄 Armado de carpetas</h3>
+
+                        <a href="archivos/Armado-de-carpetas.pdf" target="_blank">
+                            <button>Abrir</button>
+                        </a>
+                    </div>
+                    <div class="card">
+                        <h3>📄 Carga de afiliación en Sisalud</h3>
+
+                        <a href="archivos/Carga-de-afiliación-en-SISALUD.pdf" target="_blank">
+                            <button>Abrir</button>
+                        </a>
+                    </div>
+
+                </div>
+
+            </section>
+            <section id="perfil" class="seccion" style="display:none;">
+
+                <div class="container">
+
+                    <h2>Cambiar contraseña</h2>
+
+                    <div class="password-box">
+                        <input type="password" id="passwordActual" placeholder="Contraseña actual">
+
+                        <span onclick="togglePassword('passwordActual', this)">
+                            👁️
+                        </span>
+                    </div>
+
+                    <div class="password-box">
+                        <input type="password" id="passwordNueva" placeholder="Nueva contraseña">
+
+                        <span onclick="togglePassword('passwordNueva', this)">
+                            👁️
+                        </span>
+                    </div>
+
+                    <button onclick="cambiarPassword()">
+                        Guardar contraseña
+                    </button>
+
+                </div>
+
+            </section>
+
         </main>
 
     </div>
 
     <!-- TOAST -->
     <div id="toast" class="toast"></div>
+
+    <!-- MODAL COMENTARIO -->
+    <div id="modal" class="modal">
+
+        <div class="modal-content">
+            <h3>Editar comentario</h3>
+
+            <textarea id="modalComentario" rows="5"></textarea>
+
+            <button onclick="guardarComentario()">
+                Guardar
+            </button>
+
+            <button class="secondary-btn" onclick="cerrarModalComentario()">
+                Cancelar
+            </button>
+        </div>
+
+    </div>
+    <!-- MODAL EDITAR USUARIO -->
+    <div id="modalEditar" class="modal">
+
+        <div class="modal-content">
+            <h3>Editar usuario</h3>
+
+            <input type="password" id="editPassword" placeholder="Nueva contraseña">
+
+            <select id="editRol">
+                <option value="vendedora">Asesora Call</option>
+                <option value="admin">Admin</option>
+            </select>
+
+            <button onclick="guardarEdicion()">
+                Guardar cambios
+            </button>
+
+            <button class="secondary-btn" onclick="cerrarModalEditar()">
+                Cancelar
+            </button>
+        </div>
+
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
     <script src="script.js"></script>
 
