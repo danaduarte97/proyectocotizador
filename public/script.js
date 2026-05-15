@@ -610,6 +610,20 @@ function mostrarSeccion(seccion) {
     if (seccion === "usuarios") {
         cargarUsuarios();
     }
+    if (seccion === "misCotizaciones") {
+
+        const titulo =
+            esAdmin()
+                ? "📋 Cotizaciones generales"
+                : "📂 Mis cotizaciones";
+
+        document.getElementById(
+            "tituloCotizaciones"
+        ).textContent = titulo;
+
+        cargarMisCotizaciones();
+    }
+
 }
 
 async function cambiarPassword() {
@@ -657,11 +671,149 @@ function togglePassword(id, el) {
     if (input.type === "password") {
 
         input.type = "text";
-        el.textContent = "🙈";
+        el.textContent = "👁️";
 
     } else {
 
         input.type = "password";
-        el.textContent = "👁️";
+        el.textContent = "🙈";
+    }
+}
+
+async function cargarMisCotizaciones() {
+
+    const res = await fetch("/mis-cotizaciones", {
+        headers: authHeaders()
+    });
+
+    if (await manejarError(res)) return;
+
+    const data = await res.json();
+
+    const div = document.getElementById("misResultados");
+
+    div.innerHTML = "";
+
+    if (data.length === 0) {
+
+        div.innerHTML =
+            "<p>No cargaste cotizaciones todavía</p>";
+
+        return;
+    }
+
+    // AGRUPAR POR DNI
+    const agrupadas = {};
+
+    data.forEach(c => {
+
+        if (!agrupadas[c.dni]) {
+            agrupadas[c.dni] = [];
+        }
+
+        agrupadas[c.dni].push(c);
+    });
+
+    // CREAR TARJETAS
+    Object.keys(agrupadas).forEach(dni => {
+
+        const cotizaciones = agrupadas[dni];
+
+        const primera = cotizaciones[0];
+
+        div.innerHTML += `
+
+            <div class="card">
+
+                <p>
+                    <b>DNI:</b>
+                    ${dni}
+                </p>
+
+                <p>
+                    <b>Cliente:</b>
+                    ${primera.nombre || "-"}
+                </p>
+
+                <p>
+                    <b>Celular:</b>
+                    ${primera.celular || "-"}
+                </p>
+
+                <p>
+                    <b>Cotizaciones:</b>
+                    ${cotizaciones.length}
+                </p>
+
+                <button
+                    onclick="toggleHistorial('${dni}')"
+                >
+                    📂 Ver historial
+                </button>
+
+                <div
+                    id="historial-${dni}"
+                    style="
+                        display:none;
+                        margin-top:15px;
+                    "
+                >
+
+                    ${cotizaciones.map(c => `
+
+                        <div class="card historial-card">
+
+                            <p>
+                                🕒 ${formatearFecha(c.fecha)}
+                            </p>
+
+                            <p>
+                                <b>Plan:</b>
+                                ${c.plan || "-"}
+                            </p>
+
+                            <p>
+                                <b>Cobertura:</b>
+                                ${c.tipo_cobertura || "-"}
+                            </p>
+
+                            <p>
+                                <b>Modalidad:</b>
+                                ${c.modalidad || "-"}
+                            </p>
+
+                            <p>
+                                <b>Valor:</b>
+                                $${c.valor || "-"}
+                            </p>
+
+                            <p>
+                                <b>💬 Comentario:</b>
+                                ${c.comentarios || "-"}
+                            </p>
+
+                        </div>
+
+                    `).join("")}
+
+                </div>
+
+            </div>
+        `;
+    });
+}
+
+function toggleHistorial(dni) {
+
+    const div =
+        document.getElementById(`historial-${dni}`);
+
+    if (div.style.display === "none") {
+
+        div.style.display = "block";
+
+    } else {
+
+        div.style.display = "none";
     }
 }

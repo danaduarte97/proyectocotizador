@@ -16,7 +16,11 @@
             <h2>Asismed</h2>
 
             <nav>
+
                 <button onclick="mostrarSeccion('cotizador')">📊 Cotizador</button>
+                <button onclick="mostrarSeccion('misCotizaciones')">
+                    🔍 Cotizaciones
+                </button>
 
                 <button onclick="mostrarSeccion('biblioteca')">
                     📁 Biblioteca
@@ -58,11 +62,11 @@
                     <input type="text" id="celular" placeholder="Celular">
                     <input type="text" id="plan" placeholder="Plan">
                     <select id="tipoCobertura">
-                        <option value="Individual">Cobertura individual</option>
-                        <option value="Grupo Familiar">Grupo familiar</option>
+                        <option value="Individual">Cobertura Individual</option>
+                        <option value="Grupo Familiar">Grupo Familiar</option>
                     </select>
                     <select id="modalidad">
-                        <option value="PARTICULAR">PARTICULAR</option>
+                        <option value="PARTICULAR">Particular</option>
                         <option value="RD OSTV">RD OSTV</option>
                     </select>
                     <input type="text" id="valor" placeholder="Valor">
@@ -161,6 +165,20 @@
                     <button onclick="cambiarPassword()">
                         Guardar contraseña
                     </button>
+
+                </div>
+
+            </section>
+
+            <section id="misCotizaciones" class="seccion" style="display:none;">
+
+                <div class="container">
+
+                    <h2 id="tituloCotizaciones">
+                        Mis cotizaciones
+                    </h2>
+
+                    <div id="misResultados"></div>
 
                 </div>
 

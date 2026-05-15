@@ -11,9 +11,40 @@ $text: #2c3e50;
 
 body {
     font-family: "Segoe UI", Arial, sans-serif;
-    background: linear-gradient(135deg, #eef2f7, #dfe9f3);
+
+    background:
+        linear-gradient(135deg,
+            #eef2f7,
+            #dfe9f3);
+
     margin: 0;
+
     color: $text;
+
+    position: relative;
+}
+
+body::before {
+    content: "";
+
+    position: fixed;
+
+    inset: 0;
+
+    background-image:
+        url("/img/fondo.png");
+
+    background-size: cover;
+
+    background-repeat: no-repeat;
+
+    background-position: center;
+
+    opacity: 0.50;
+
+    pointer-events: none;
+
+    z-index: -1;
 }
 
 /* NAVBAR */
@@ -444,4 +475,11 @@ button {
     font-size: 18px;
 
     user-select: none;
+}
+
+
+.historial-card {
+    margin-top: 10px;
+    background: #f8fbff;
+    border-left: 4px solid #2e86c1;
 }

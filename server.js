@@ -178,15 +178,31 @@ app.post("/agregar", verificarToken, (req, res) => {
         modalidad,
         comentarios
     } = req.body;
+
     const vendedora = req.user.usuario;
 
     if (!dni) {
-        return res.status(400).json({ error: "DNI obligatorio" });
+        return res.status(400).json({
+            error: "DNI obligatorio"
+        });
     }
 
     db.run(
-        `INSERT INTO cotizaciones (dni, nombre, celular, plan, tipo_cobertura, valor, modalidad, vendedora, comentarios)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `
+        INSERT INTO cotizaciones
+        (
+            dni,
+            nombre,
+            celular,
+            plan,
+            tipo_cobertura,
+            valor,
+            modalidad,
+            vendedora,
+            comentarios
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
         [
             dni,
             nombre,
@@ -199,11 +215,21 @@ app.post("/agregar", verificarToken, (req, res) => {
             comentarios
         ],
         function (err) {
-            if (err) return res.status(500).json(err);
-            res.json({ success: true });
+
+            if (err) {
+
+                console.log(err);
+
+                return res.status(500).json(err);
+            }
+
+            res.json({
+                success: true
+            });
         }
     );
 });
+
 app.post(
     "/subir-archivo/:id",
     verificarToken,
@@ -434,9 +460,7 @@ app.put("/cambiar-password", verificarToken, async (req, res) => {
         }
     );
 });
-app.listen(3000, () => {
-    console.log("Servidor corriendo en http://localhost:3000");
-});
+
 
 app.put("/cambiar-password", verificarToken, async (req, res) => {
 
@@ -478,4 +502,54 @@ app.put("/cambiar-password", verificarToken, async (req, res) => {
             );
         }
     );
+});
+
+app.get("/mis-cotizaciones", verificarToken, (req, res) => {
+
+    // 👑 ADMIN VE TODO
+    if (req.user.rol === "admin") {
+
+        db.all(
+            `
+            SELECT *
+            FROM cotizaciones
+            ORDER BY fecha DESC
+            `,
+            [],
+            (err, rows) => {
+
+                if (err) {
+                    return res.status(500).json(err);
+                }
+
+                res.json(rows);
+            }
+        );
+
+        return;
+    }
+
+    // 👤 VENDEDORA VE SOLO LAS SUYAS
+    db.all(
+        `
+        SELECT *
+        FROM cotizaciones
+        WHERE vendedora = ?
+        ORDER BY fecha DESC
+        `,
+        [req.user.usuario],
+        (err, rows) => {
+
+            if (err) {
+                return res.status(500).json(err);
+            }
+
+            res.json(rows);
+        }
+    );
+});
+
+
+app.listen(3000, () => {
+    console.log("Servidor corriendo en http://localhost:3000");
 });
