@@ -51,6 +51,22 @@ async function manejarError(res) {
     return false;
 }
 
+
+function mostrarLoader() {
+
+    document.getElementById(
+        "loaderGlobal"
+    ).style.display = "flex";
+}
+
+function ocultarLoader() {
+
+    document.getElementById(
+        "loaderGlobal"
+    ).style.display = "none";
+}
+
+
 // =======================
 // 👥 USUARIOS
 // =======================
@@ -123,9 +139,6 @@ function formatearFecha(fecha) {
 
     const f = new Date(fecha);
 
-    // corregir UTC → Argentina
-    f.setHours(f.getHours() - 3);
-
     const ahora = new Date();
 
     const mismoDia =
@@ -172,7 +185,7 @@ async function buscar() {
         alert("Ingresá un DNI");
         return;
     }
-
+    mostrarLoader();
     const res = await fetch(`/buscar/${dni}`, {
         headers: authHeaders()
     });
@@ -180,6 +193,7 @@ async function buscar() {
     if (await manejarError(res)) return;
 
     const data = await res.json();
+    ocultarLoader();
 
     const div = document.getElementById("resultados");
     div.innerHTML = "";
@@ -201,7 +215,7 @@ async function buscar() {
             <div class="pdf-header solo-pdf">
 
                 <img
-                    src="/img/logo-asismed.jpg"
+                    src="/img/logo-asismed.png"
                     class="logo-pdf"
                 >
   <h2 class="titulo-pdf">
@@ -231,11 +245,42 @@ async function buscar() {
     <b>Modalidad:</b>
     ${c.modalidad || "PARTICULAR"}
 </p>
+<p>
+    <b>Válida hasta:</b>
+    ${c.vigencia || "-"}
+</p>
+
+<p>
+    <b>Referido:</b>
+    ${c.referido || "No"}
+</p>
+
+<p>
+    <b>Congelamiento:</b>
+    ${c.congelamiento || "Sin congelamiento"}
+</p>
 
             <!-- NO PDF -->
             <p class="no-pdf">
                 <b>💬 Comentario:</b>
                 ${c.comentarios || "Sin comentarios"}
+
+                <div class="comentarios-internos">
+
+    <h4>🗨️ Comentarios internos</h4>
+
+    <div id="comentarios-${c.id}"></div>
+
+    <textarea
+        id="nuevoComentario-${c.id}"
+        placeholder="Escribir comentario..."
+    ></textarea>
+
+    <button onclick="agregarComentario(${c.id})">
+        Agregar comentario
+    </button>
+
+</div>
             </p>
 
             <!-- NO PDF -->
@@ -260,7 +305,10 @@ async function buscar() {
                     Editar comentario
                 </button>
             ` : ""}
-
+<!-- SOLO PDF -->
+<p class="solo-pdf pdf-aclaracion">
+    Presentar este documento para respetar la cotización informada.
+</p>
             <button
                 class="no-pdf"
                 onclick="descargarPDF(${c.id})"
@@ -272,6 +320,7 @@ async function buscar() {
     `;
 
         cargarArchivos(c.id);
+        cargarComentarios(c.id);
     });
 }
 
@@ -322,6 +371,70 @@ async function cargarArchivos(cotizacionId) {
         `;
     });
 }
+async function cargarComentarios(cotizacionId) {
+
+    const res = await fetch(`/comentarios/${cotizacionId}`, {
+        headers: authHeaders()
+    });
+
+    const comentarios = await res.json();
+
+    const div =
+        document.getElementById(`comentarios-${cotizacionId}`);
+
+    if (!div) return;
+
+    div.innerHTML = "";
+
+    comentarios.forEach(c => {
+
+        div.innerHTML += `
+            <div class="comentario-item">
+
+                <b>${c.usuario}</b>
+
+                <small>
+                    ${formatearFecha(c.fecha)}
+                </small>
+
+                <p>${c.comentario}</p>
+
+            </div>
+        `;
+    });
+}
+
+async function agregarComentario(cotizacionId) {
+
+    const textarea =
+        document.getElementById(
+            `nuevoComentario-${cotizacionId}`
+        );
+
+    const comentario = textarea.value;
+
+    if (!comentario) return;
+    mostrarLoader();
+    const res = await fetch(`/comentarios/${cotizacionId}`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ comentario })
+    });
+    ocultarLoader();
+    if (res.ok) {
+
+        textarea.value = "";
+
+        cargarComentarios(cotizacionId);
+
+        mostrarToast(
+            "Comentario agregado",
+            "success"
+        );
+    }
+}
+
+
 async function descargarPDF(id) {
 
     const card = document.getElementById(`card-${id}`);
@@ -351,12 +464,14 @@ async function descargarPDF(id) {
     mostrarToast("Generando PDF...", "success");
     card.style.opacity = "1";
 
+    mostrarLoader();
     const canvas = await html2canvas(card, {
         scale: 2,
         backgroundColor: "#ffffff",
         useCORS: true,
         logging: false
     });
+    ocultarLoader();
 
     const imgData = canvas.toDataURL("image/png");
 
@@ -401,15 +516,34 @@ async function descargarPDF(id) {
 async function agregar() {
     const data = {
         dni: document.getElementById("dni").value,
+
         nombre: document.getElementById("nombre").value,
+
         celular: document.getElementById("celular").value,
+
         plan: document.getElementById("plan").value,
+
         tipo_cobertura:
             document.getElementById("tipoCobertura").value,
+
         valor: document.getElementById("valor").value,
+
         modalidad:
             document.getElementById("modalidad").value,
-        comentarios: document.getElementById("comentarios").value
+
+        vigencia:
+            document.getElementById("vigencia").value,
+
+        referido:
+            document.getElementById("referido").checked
+                ? "Sí"
+                : "No",
+
+        congelamiento:
+            document.getElementById("congelamiento").value,
+
+        comentarios:
+            document.getElementById("comentarios").value
     };
 
     const res = await fetch("/agregar", {
@@ -417,7 +551,20 @@ async function agregar() {
         headers: authHeaders(),
         body: JSON.stringify(data)
     });
+    document.getElementById("nombre").value = "";
+    document.getElementById("celular").value = "";
+    document.getElementById("valor").value = "";
+    document.getElementById("comentarios").value = "";
 
+    document.getElementById("plan").selectedIndex = 0;
+    document.getElementById("tipoCobertura").selectedIndex = 0;
+    document.getElementById("modalidad").selectedIndex = 0;
+
+    document.getElementById("referido").checked = false;
+
+    document.getElementById("congelamiento").value = "";
+
+    document.getElementById("vigencia").value = "";
     if (await manejarError(res)) return;
 
     if (res.ok) {
@@ -788,6 +935,21 @@ async function cargarMisCotizaciones() {
                             </p>
 
                             <p>
+                            <b>Válida hasta:</b>
+                            ${c.vigencia || "-"}
+                            </p>
+
+                            <p>
+                            <b>Referido:</b>
+                            ${c.referido || "No"}
+                            </p>
+                            
+                            <p>
+                            <b>Congelamiento:</b>
+                            ${c.congelamiento || "Sin congelamiento"}
+                            </p>
+
+                            <p>
                                 <b>💬 Comentario:</b>
                                 ${c.comentarios || "-"}
                             </p>
@@ -816,4 +978,17 @@ function toggleHistorial(dni) {
 
         div.style.display = "none";
     }
+}
+
+function toggleMenu() {
+
+    const sidebar =
+        document.getElementById("sidebar");
+
+    const overlay =
+        document.getElementById("overlay");
+
+    sidebar.classList.toggle("sidebar-open");
+
+    overlay.classList.toggle("active");
 }

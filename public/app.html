@@ -4,6 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1b4f72">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>Cotizador Asismed</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -13,7 +16,7 @@
     <div class="app">
 
         <!-- SIDEBAR -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <h2>Asismed</h2>
 
             <nav>
@@ -37,13 +40,28 @@
 
             <button class="logout" onclick="logout()">Cerrar sesión</button>
         </aside>
+        <div class="overlay" id="overlay" onclick="toggleMenu()"></div>
 
         <!-- CONTENIDO -->
         <main class="main">
 
             <!-- TOPBAR -->
             <div class="topbar">
+
+                <button class="menu-btn" onclick="toggleMenu()">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+
+                <div class="topbar-logo">
+
+                    <img src="img/logo-asismed.png" alt="Asismed">
+
+                </div>
+
                 <span id="usuarioLogueado"></span>
+
             </div>
 
             <!-- SECCIÓN COTIZADOR -->
@@ -61,7 +79,38 @@
                     <h3>Nueva cotización</h3>
                     <input type="text" id="nombre" placeholder="Nombre">
                     <input type="text" id="celular" placeholder="Celular">
-                    <input type="text" id="plan" placeholder="Plan">
+                    <select id="plan">
+
+                        <option value="">
+                            Seleccionar plan
+                        </option>
+
+                        <option value="Oro">
+                            Oro
+                        </option>
+
+                        <option value="Plata">
+                            Plata
+                        </option>
+
+                        <option value="Bronce">
+                            Bronce
+                        </option>
+
+                        <option value="Acero">
+                            Acero
+                        </option>
+
+                        <option value="Cromo">
+                            Cromo
+                        </option>
+
+                        <option value="Plan Plus">
+                            Plus
+                        </option>
+
+                    </select>
+
                     <select id="tipoCobertura">
                         <option value="Individual">Cobertura Individual</option>
                         <option value="Grupo Familiar">Grupo Familiar</option>
@@ -71,6 +120,39 @@
                         <option value="RD OSTV">RD OSTV</option>
                     </select>
                     <input type="text" id="valor" placeholder="Valor">
+                    <label>
+                        Cotización válida hasta
+                    </label>
+
+                    <input type="date" id="vigencia">
+                    <div class="check-group">
+
+                        <input type="checkbox" id="referido">
+
+                        <label for="referido">
+                            Referido
+                        </label>
+
+                    </div>
+                    <label>
+                        Congelamiento de cuota
+                    </label>
+
+                    <select id="congelamiento">
+
+                        <option value="">
+                            Sin congelamiento
+                        </option>
+
+                        <option value="3 meses">
+                            3 meses
+                        </option>
+
+                        <option value="6 meses">
+                            6 meses
+                        </option>
+
+                    </select>
                     <textarea id="comentarios" placeholder="Comentarios"></textarea>
 
                     <button onclick="agregar()">Guardar</button>
@@ -230,6 +312,27 @@
             <button class="secondary-btn" onclick="cerrarModalEditar()">
                 Cancelar
             </button>
+        </div>
+
+    </div>
+
+
+    <div id="loaderGlobal" class="loader-overlay" style="display:none;">
+
+        <div class="loader">
+
+            <svg class="svg-wrap" viewBox="0 0 120 30">
+
+                <circle class="circle circle-one" cx="15" cy="15" r="5"></circle>
+
+                <circle class="circle circle-two" cx="60" cy="15" r="5"></circle>
+
+                <circle class="circle circle-three" cx="105" cy="15" r="5"></circle>
+
+                <path class="svg-stroke" d="M15 15 H105" stroke-width="5" stroke-linecap="round"></path>
+
+            </svg>
+
         </div>
 
     </div>

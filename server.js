@@ -95,6 +95,10 @@ db.serialize(() => {
     VALUES ('admin', ?, 'admin')
     `, [passwordHash]);
 
+    const fecha = new Date().toLocaleString("sv-SE", {
+        timeZone: "America/Argentina/Buenos_Aires"
+    });
+
     db.run(`
 CREATE TABLE IF NOT EXISTS archivos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,6 +106,30 @@ CREATE TABLE IF NOT EXISTS archivos (
     nombre TEXT,
     archivo TEXT,
     fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+`);
+    db.run(`
+ALTER TABLE cotizaciones
+ADD COLUMN vigencia TEXT
+`, () => { });
+
+    db.run(`
+ALTER TABLE cotizaciones
+ADD COLUMN referido TEXT
+`, () => { });
+
+    db.run(`
+ALTER TABLE cotizaciones
+ADD COLUMN congelamiento TEXT
+`, () => { });
+
+    db.run(`
+CREATE TABLE IF NOT EXISTS comentarios_cotizacion (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cotizacion_id INTEGER,
+    usuario TEXT,
+    comentario TEXT,
+    fecha DATETIME DEFAULT (datetime('now', '-3 hours'))
 )
 `);
 
@@ -176,6 +204,9 @@ app.post("/agregar", verificarToken, (req, res) => {
         tipo_cobertura,
         valor,
         modalidad,
+        vigencia,
+        referido,
+        congelamiento,
         comentarios
     } = req.body;
 
@@ -189,20 +220,23 @@ app.post("/agregar", verificarToken, (req, res) => {
 
     db.run(
         `
-        INSERT INTO cotizaciones
-        (
-            dni,
-            nombre,
-            celular,
-            plan,
-            tipo_cobertura,
-            valor,
-            modalidad,
-            vendedora,
-            comentarios
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
+    INSERT INTO cotizaciones
+    (
+        dni,
+        nombre,
+        celular,
+        plan,
+        tipo_cobertura,
+        valor,
+        modalidad,
+        vendedora,
+        vigencia,
+        referido,
+        congelamiento,
+        comentarios
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
         [
             dni,
             nombre,
@@ -212,6 +246,9 @@ app.post("/agregar", verificarToken, (req, res) => {
             valor,
             modalidad,
             vendedora,
+            vigencia,
+            referido,
+            congelamiento,
             comentarios
         ],
         function (err) {
@@ -300,6 +337,67 @@ app.put("/editar-comentario/:id", verificarToken, (req, res) => {
             }
         );
     });
+});
+// 👉 AGREGAR COMENTARIO INTERNO
+app.post("/comentarios/:id", verificarToken, (req, res) => {
+
+    const cotizacionId = req.params.id;
+
+    const { comentario } = req.body;
+
+    if (!comentario) {
+        return res.status(400).json({
+            error: "Comentario vacío"
+        });
+    }
+
+    db.run(
+        `
+        INSERT INTO comentarios_cotizacion
+        (
+            cotizacion_id,
+            usuario,
+            comentario
+        )
+        VALUES (?, ?, ?)
+        `,
+        [
+            cotizacionId,
+            req.user.usuario,
+            comentario
+        ],
+        function (err) {
+
+            if (err) {
+                return res.status(500).json(err);
+            }
+
+            res.json({
+                success: true
+            });
+        }
+    );
+});
+// 👉 OBTENER COMENTARIOS
+app.get("/comentarios/:id", verificarToken, (req, res) => {
+
+    db.all(
+        `
+        SELECT *
+        FROM comentarios_cotizacion
+        WHERE cotizacion_id = ?
+        ORDER BY fecha ASC
+        `,
+        [req.params.id],
+        (err, rows) => {
+
+            if (err) {
+                return res.status(500).json(err);
+            }
+
+            res.json(rows);
+        }
+    );
 });
 
 // =======================
