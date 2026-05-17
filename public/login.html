@@ -14,7 +14,15 @@
         <h2>Iniciar sesión</h2>
 
         <input type="text" id="usuario" placeholder="Usuario">
-        <input type="password" id="password" placeholder="Contraseña">
+        <div class="password-box">
+
+            <input type="password" id="password" placeholder="Contraseña">
+
+            <span onclick="toggleLoginPassword(this)">
+                👁️
+            </span>
+
+        </div>
 
         <button onclick="login()">Ingresar</button>
     </div>
@@ -49,6 +57,23 @@
                 window.location.href = "/app.html";
             } else {
                 alert("Usuario o contraseña incorrectos");
+            }
+        }
+
+        function toggleLoginPassword(el) {
+
+            const input =
+                document.getElementById("password");
+
+            if (input.type === "password") {
+
+                input.type = "text";
+                el.textContent = "🙈";
+
+            } else {
+
+                input.type = "password";
+                el.textContent = "👁️";
             }
         }
     </script>

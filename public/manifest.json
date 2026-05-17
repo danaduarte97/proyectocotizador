@@ -1,0 +1,15 @@
+{
+    "name": "Cotizador Asismed",
+    "short_name": "Asismed",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#1b4f72",
+    "icons": [
+        {
+            "src": "img/logo-mobile.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}
