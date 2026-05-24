@@ -23,6 +23,19 @@ body::before {
   z-index: -1;
 }
 
+.sidebar-logo {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 25px;
+}
+
+.sidebar-logo img {
+  width: 70px;
+  height: auto;
+  object-fit: contain;
+}
+
 /* NAVBAR */
 .navbar {
   background: rgba(255, 255, 255, 0.8);
@@ -199,7 +212,7 @@ button:hover {
 
 .container {
   width: 100%;
-  max-width: 700px;
+  max-width: 800px;
 }
 
 /* SIDEBAR */
@@ -720,7 +733,165 @@ button:hover {
   user-select: none;
 }
 
-@media (max-width: 768px) {
+.imc-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 25px;
+}
+
+.imc-row input[type=range] {
+  flex: 1;
+}
+
+.imc-box {
+  min-width: 90px;
+  padding: 12px 18px;
+  border: 1px solid #31c7d5;
+  border-radius: 30px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  font-size: 24px;
+  background: white;
+}
+
+.imc-box small {
+  font-size: 16px;
+  color: #555;
+}
+
+.imc-box input {
+  width: 90px;
+  border: none;
+  outline: none;
+  font-size: 24px;
+  text-align: center;
+  background: transparent;
+}
+
+.imc-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 50px;
+  width: 100%;
+}
+
+.imc-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.imc-resultado-card {
+  width: 320px;
+  min-width: 320px;
+  background: #fff;
+  border-radius: 22px;
+  padding: 35px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border: 1px solid #eee;
+}
+
+.imc-titulo {
+  font-size: 14px;
+  font-weight: 700;
+  color: #555;
+  margin-bottom: 10px;
+}
+
+#imcNumero {
+  font-size: 64px;
+  margin: 0;
+  line-height: 1;
+}
+
+#imcEstado {
+  margin-top: 15px;
+  font-size: 30px;
+}
+
+#imcTexto {
+  color: #666;
+  margin-top: 15px;
+  line-height: 1.5;
+}
+
+.imc-row input[type=range] {
+  flex: 1;
+  accent-color: #3f2bff;
+}
+
+.user-menu {
+  position: relative;
+}
+
+.usuario-btn {
+  cursor: pointer;
+  font-weight: 600;
+  color: #1f2937;
+  background: white;
+  padding: 10px 14px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e5e7eb;
+  transition: 0.2s;
+}
+
+.usuario-btn:hover {
+  background: #f5f7fa;
+}
+
+.user-dropdown {
+  position: absolute;
+  right: 0;
+  top: 40px;
+  background: white;
+  border-radius: 14px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
+  padding: 10px;
+  min-width: 190px;
+  display: none;
+  z-index: 999;
+}
+
+.user-dropdown button {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 10px;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #1f2937 !important;
+  font-weight: 500;
+}
+
+.user-dropdown button:hover {
+  background: #f3f5f7;
+  color: #111827 !important;
+}
+
+@media (max-width: 900px) {
+  .imc-container {
+    flex-direction: column;
+  }
+  .imc-resultado-card {
+    width: 100%;
+    min-width: auto;
+  }
+}
+@media (max-width: 1333px) {
   .sidebar {
     left: -100%;
     width: 280px;

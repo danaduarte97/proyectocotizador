@@ -25,7 +25,10 @@
 
         <!-- SIDEBAR -->
         <aside class="sidebar" id="sidebar">
-            <h2>Asismed</h2>
+
+            <div class="sidebar-logo">
+                <img src="img/logo-asismed-peque.png" alt="Asismed">
+            </div>
 
             <nav>
 
@@ -33,16 +36,15 @@
                 <button onclick="mostrarSeccion('misCotizaciones')">
                     🔍 Cotizaciones
                 </button>
-
+                <button onclick="mostrarSeccion('calculadoras')">
+                    ⚖️ Calculadora IMC
+                </button>
                 <button onclick="mostrarSeccion('biblioteca')">
                     📁 Biblioteca
                 </button>
 
                 <button id="btnUsuarios" onclick="mostrarSeccion('usuarios')">
                     👥 Usuarios
-                </button>
-                <button onclick="mostrarSeccion('perfil')">
-                    🔐 Mi contraseña
                 </button>
             </nav>
 
@@ -68,7 +70,23 @@
 
                 </div>
 
-                <span id="usuarioLogueado"></span>
+                <div class="user-menu">
+
+                    <div id="usuarioLogueado" class="usuario-btn" onclick="toggleUserMenu()"></div>
+
+                    <div id="userDropdown" class="user-dropdown">
+
+                        <button onclick="mostrarSeccion('perfil')">
+                            🔐 Mi contraseña
+                        </button>
+
+                        <button onclick="logout()">
+                            🚪 Cerrar sesión
+                        </button>
+
+                    </div>
+
+                </div>
 
             </div>
 
@@ -205,6 +223,139 @@
                             <button>Abrir</button>
                         </a>
                     </div>
+
+                </div>
+
+            </section>
+            <section id="calculadoras" class="seccion" style="display:none;">
+
+                <!-- IMC ADULTOS -->
+                <div class="container imc-container">
+
+                    <div class="imc-left">
+
+                        <h2>⚖️ IMC Adultos</h2>
+
+                        <label>Tu altura</label>
+
+                        <div class="imc-row">
+
+                            <input type="range" id="alturaRange" min="120" max="220" value="170"
+                                oninput="syncAltura(this.value); calcularIMCAutomatico();">
+
+                            <div class="imc-box">
+
+                                <input type="number" id="altura" value="170"
+                                    oninput="syncAlturaInput(this.value); calcularIMCAutomatico();">
+
+                                <small>cm</small>
+
+                            </div>
+
+                        </div>
+
+                        <label>Tu peso</label>
+
+                        <div class="imc-row">
+
+                            <input type="range" id="pesoRange" min="30" max="200" value="70"
+                                oninput="syncPeso(this.value); calcularIMCAutomatico();">
+
+                            <div class="imc-box">
+
+                                <input type="number" id="peso" value="70"
+                                    oninput="syncPesoInput(this.value); calcularIMCAutomatico();">
+
+                                <small>kg</small>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    <div class="imc-resultado-card">
+
+                        <p class="imc-titulo">
+                            TU IMC
+                        </p>
+
+                        <h1 id="imcNumero">
+                            24.2
+                        </h1>
+
+                        <h3 id="imcEstado">
+                            Normal
+                        </h3>
+
+                        <p id="imcTexto">
+                            Tu peso está dentro del rango saludable.
+                        </p>
+
+                    </div>
+
+                </div>
+
+                <!-- IMC PEDIÁTRICO -->
+                <div class="container">
+
+                    <h2>👦 IMC Pediátrico</h2>
+
+                    <label>Edad</label>
+
+                    <div class="imc-row">
+
+                        <input type="range" id="edadRange" min="2" max="18" value="6" oninput="syncEdad(this.value)">
+
+                        <div class="imc-box">
+
+                            <input type="number" id="edadNino" value="6" oninput="syncEdadInput(this.value)">
+
+                            <small>años</small>
+
+                        </div>
+
+                    </div>
+
+                    <label>Tu altura</label>
+
+                    <div class="imc-row">
+
+                        <input type="range" id="alturaNinoRange" min="80" max="220" value="115"
+                            oninput="syncAlturaNino(this.value)">
+
+                        <div class="imc-box">
+
+                            <input type="number" id="alturaNino" value="115" oninput="syncAlturaNinoInput(this.value)">
+
+                            <small>cm</small>
+
+                        </div>
+
+                    </div>
+
+                    <label>Tu peso</label>
+
+                    <div class="imc-row">
+
+                        <input type="range" id="pesoNinoRange" min="10" max="150" value="20"
+                            oninput="syncPesoNino(this.value)">
+
+                        <div class="imc-box">
+
+                            <input type="number" id="pesoNino" value="20" oninput="syncPesoNinoInput(this.value)">
+
+                            <small>kg</small>
+
+                        </div>
+
+                    </div>
+
+                    <button onclick="calcularIMCPediatrico()">
+                        Calcular IMC Pediátrico
+                    </button>
+
+                    <div id="resultadoIMCPediatrico"></div>
 
                 </div>
 

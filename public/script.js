@@ -708,7 +708,9 @@ window.onload = function () {
     // mostrar usuario logueado
     const user = document.getElementById("usuarioLogueado");
     if (user) {
-        user.textContent = "👤 " + payload.usuario;
+        user.innerHTML = `
+    👤 ${payload.usuario} ⌄
+`;
     }
 
     // si NO es admin oculta botón usuarios
@@ -718,6 +720,7 @@ window.onload = function () {
     }
 
     cargarUsuarios();
+    calcularIMCAutomatico();
 };
 
 // =======================
@@ -992,3 +995,352 @@ function toggleMenu() {
 
     overlay.classList.toggle("active");
 }
+
+function calcularIMC() {
+
+    const peso =
+        parseFloat(
+            document.getElementById("peso").value
+        );
+
+    const alturaCm =
+        parseFloat(
+            document.getElementById("altura").value
+        );
+
+    if (!peso || !alturaCm) {
+
+        mostrarToast(
+            "Completá peso y altura",
+            "error"
+        );
+
+        return;
+    }
+
+    const altura = alturaCm / 100;
+
+    const imc =
+        peso / (altura * altura);
+
+    let estado = "";
+    let observaciones = "";
+
+    if (imc < 18.5) {
+
+        estado = "Bajo peso";
+
+    } else if (imc < 25) {
+
+        estado = "Normal";
+
+    } else if (imc < 30) {
+
+        estado = "Sobrepeso";
+
+    } else if (imc < 33) {
+
+        estado = "Obesidad";
+
+    } else if (imc <= 35) {
+
+        estado = "IMC entre 33 y 35";
+
+        observaciones = `
+            <ul>
+                <li>⚠️ Se recomienda duplicar la cuota</li>
+                <li>❌ Exclusión de cirugía bariátrica</li>
+                <li>🧪 Requiere laboratorio de pre ingreso</li>
+            </ul>
+        `;
+
+    } else if (imc <= 38) {
+
+        estado = "IMC entre 35 y 38";
+
+        observaciones = `
+            <ul>
+                <li>⚠️ Consultar aumento de cuota</li>
+                <li>❌ Exclusión de cirugía bariátrica</li>
+                <li>🧪 Requiere laboratorio</li>
+                <li>❤️ Requiere ecodoppler</li>
+            </ul>
+        `;
+
+    } else {
+
+        estado = "Mayor a 38";
+
+        observaciones = `
+            <ul>
+                <li>🚫 Corresponde únicamente plan ambulatorio</li>
+            </ul>
+        `;
+    }
+
+    document.getElementById(
+        "resultadoIMC"
+    ).innerHTML = `
+
+        <div class="card">
+
+            <h3>
+                ⚖️ IMC: ${imc.toFixed(1)}
+            </h3>
+
+            <p>
+                <b>${estado}</b>
+            </p>
+
+            ${observaciones}
+
+        </div>
+    `;
+}
+
+function calcularIMCPediatrico() {
+
+    const edad =
+        parseInt(
+            document.getElementById("edadNino").value
+        );
+
+    const peso =
+        parseFloat(
+            document.getElementById("pesoNino").value
+        );
+
+    const alturaCm =
+        parseFloat(
+            document.getElementById("alturaNino").value
+        );
+
+    if (!edad || !peso || !alturaCm) {
+
+        mostrarToast(
+            "Completá todos los campos",
+            "error"
+        );
+
+        return;
+    }
+
+    if (edad < 2) {
+
+        mostrarToast(
+            "La calculadora es para mayores de 2 años",
+            "error"
+        );
+
+        return;
+    }
+
+    const altura = alturaCm / 100;
+
+    const imc =
+        peso / (altura * altura);
+
+    let estado = "";
+
+    // ORIENTATIVO SIMPLE
+
+    if (imc < 14) {
+
+        estado = "Bajo peso";
+
+    } else if (imc < 18) {
+
+        estado = "Peso normal";
+
+    } else if (imc < 21) {
+
+        estado = "Sobrepeso";
+
+    } else {
+
+        estado = "Obesidad";
+    }
+
+    document.getElementById(
+        "resultadoIMCPediatrico"
+    ).innerHTML = `
+
+        <div class="card">
+
+            <h3>
+                👦 IMC Pediátrico:
+                ${imc.toFixed(1)}
+            </h3>
+
+            <p>
+                <b>${estado}</b>
+            </p>
+
+            <small style="
+                color:gray;
+                display:block;
+                margin-top:10px;
+            ">
+                Resultado orientativo.
+                La evaluación definitiva depende
+                de percentiles pediátricos.
+            </small>
+
+        </div>
+    `;
+}
+
+// =======================
+// SYNC IMC ADULTOS
+// =======================
+
+function syncAltura(valor) {
+    document.getElementById("altura").value = valor;
+}
+
+function syncAlturaInput(valor) {
+    document.getElementById("alturaRange").value = valor;
+}
+
+function syncPeso(valor) {
+    document.getElementById("peso").value = valor;
+}
+
+function syncPesoInput(valor) {
+    document.getElementById("pesoRange").value = valor;
+}
+
+// =======================
+// SYNC IMC PEDIÁTRICO
+// =======================
+
+function syncEdad(valor) {
+    document.getElementById("edadNino").value = valor;
+}
+
+function syncEdadInput(valor) {
+    document.getElementById("edadRange").value = valor;
+}
+
+function syncAlturaNino(valor) {
+    document.getElementById("alturaNino").value = valor;
+}
+
+function syncAlturaNinoInput(valor) {
+    document.getElementById("alturaNinoRange").value = valor;
+}
+
+function syncPesoNino(valor) {
+    document.getElementById("pesoNino").value = valor;
+}
+
+function syncPesoNinoInput(valor) {
+    document.getElementById("pesoNinoRange").value = valor;
+}
+
+function calcularIMCAutomatico() {
+
+    const peso =
+        parseFloat(document.getElementById("peso").value);
+
+    const altura =
+        parseFloat(document.getElementById("altura").value) / 100;
+
+    if (!peso || !altura) return;
+
+    const imc = peso / (altura * altura);
+
+    document.getElementById("imcNumero")
+        .textContent = imc.toFixed(1);
+
+    let estado = "";
+    let texto = "";
+    let color = "";
+
+    if (imc < 18.5) {
+
+        estado = "Bajo peso";
+        texto = "Peso por debajo de lo recomendado.";
+        color = "#f39c12";
+
+    } else if (imc < 25) {
+
+        estado = "Normal";
+        texto = "Se encuentra dentro del rango saludable.";
+        color = "#18a558";
+
+    } else if (imc < 33) {
+
+        estado = "Sobrepeso";
+        texto = "Se encuentra dentro del rango aceptable.";
+        color = "#ff9800";
+
+    } else if (imc <= 35) {
+
+        estado = "IMC 33-35";
+        texto =
+            "Se recomienda duplicar la cuota - Exclusión de cirugía bariátrica - Requiere laboratorio de pre ingreso";
+
+        color = "#e53935";
+
+    } else if (imc <= 38) {
+
+        estado = "IMC 35-38";
+        texto =
+            "Aumento de cuota - Exclusión de cirugía bariátrica - Requiere laboratorio y ecodoppler de pre ingreso ";
+
+        color = "#c62828";
+
+    } else {
+
+        estado = "Obesidad";
+        texto =
+            "IMC mayor a 38. Corresponde plan ambulatorio.";
+
+        color = "#7b1fa2";
+    }
+
+    document.getElementById("imcEstado")
+        .textContent = estado;
+
+    document.getElementById("imcTexto")
+        .textContent = texto;
+
+    document.getElementById("imcNumero")
+        .style.color = color;
+
+    document.getElementById("imcEstado")
+        .style.color = color;
+}
+
+function toggleUserMenu() {
+
+    const menu =
+        document.getElementById("userDropdown");
+
+    if (menu.style.display === "block") {
+
+        menu.style.display = "none";
+
+    } else {
+
+        menu.style.display = "block";
+    }
+}
+
+// cerrar si clickea afuera
+window.addEventListener("click", function (e) {
+
+    const menu =
+        document.getElementById("userDropdown");
+
+    const btn =
+        document.getElementById("usuarioLogueado");
+
+    if (
+        !menu.contains(e.target) &&
+        !btn.contains(e.target)
+    ) {
+        menu.style.display = "none";
+    }
+});
