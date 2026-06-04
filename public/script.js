@@ -212,16 +212,73 @@ async function buscar() {
         <div class="card" id="card-${c.id}">
 
             <!-- SOLO PDF -->
-            <div class="pdf-header solo-pdf">
+           <div class="pdf-header solo-pdf">
 
-                <img
-                    src="/img/logo-asismed.png"
-                    class="logo-pdf"
-                >
-  <h2 class="titulo-pdf">
-                    
-                </h2>
-            </div>
+    <img
+        src="/img/franja-pdf.png"
+        class="franja-pdf"
+    >
+
+</div>
+
+<div class="solo-pdf pdf-datos-cliente">
+
+    <h2>Cotización de:</h2>
+
+    <h1>${c.nombre || ""}</h1>
+
+    <p><b>DNI:</b> ${c.dni}</p>
+
+    <p><b>Teléfono:</b> ${c.celular || "-"}</p>
+
+</div>
+<div class="solo-pdf detalle-pdf">
+
+    <h3>DETALLE</h3>
+
+    <p>
+        <b>Plan:</b>
+        ${c.plan}
+    </p>
+
+ <p><b>Subtotal:</b> $${c.valor}</p>
+
+<p><b>Bonificación comercial:</b>
+$${c.bonificacion || 0}
+</p>
+
+<p><b>Bonificación por aportes:</b>
+$${c.bonificacion_aportes || 0}
+</p>
+
+    <p>
+        <b>Modalidad:</b>
+        ${c.modalidad}
+    </p>
+
+    <p>
+        <b>Referido:</b>
+        ${c.referido}
+    </p>
+
+</div>
+<div class="solo-pdf total-final">
+
+    <h2>
+
+        TOTAL A PAGAR
+
+        $
+
+        ${(
+                Number(c.valor || 0)
+                - Number(c.bonificacion || 0)
+                - Number(c.bonificacion_aportes || 0)
+            ).toLocaleString("es-AR")}
+
+    </h2>
+
+</div>
 
             <!-- DECORACIÓN -->
             <div class="pdf-decoracion solo-pdf"></div>
@@ -242,6 +299,15 @@ async function buscar() {
 
             <p><b>Valor:</b> $${c.valor}</p>
             <p>
+            <p>
+    <b>Bonificación comercial:</b>
+    $${c.bonificacion || 0}
+</p>
+
+<p>
+    <b>Bonificación por aportes:</b>
+    $${c.bonificacion_aportes || 0}
+</p>
     <b>Modalidad:</b>
     ${c.modalidad || "PARTICULAR"}
 </p>
@@ -305,9 +371,34 @@ async function buscar() {
                     Editar comentario
                 </button>
             ` : ""}
+            <div class="solo-pdf pie-pdf">
+
+    <p>
+        Fecha:
+        ${new Date(c.fecha).toLocaleDateString("es-AR")}
+    </p>
+
+    <p>
+        Vigencia hasta:
+        ${c.vigencia || "-"}
+    </p>
+
+    <p>
+        Asesora comercial:
+        ${c.vendedora}
+    </p>
+
+    <p>
+        Contacto Asismed:
+        Whatsapp - 11 3943-8158
+    </p>
+
+</div>
 <!-- SOLO PDF -->
 <p class="solo-pdf pdf-aclaracion">
-    Presentar este documento para respetar la cotización informada.
+
+La presente cotización realizada en el día de la fecha queda expresamente sujeta a variaciones conforme las actualizaciones, aumentos o ajustes que pudiera autorizar Asismed o bien, por modificaciones o actualizaciones de datos personales, los cuales serán aplicados al mes que se indique.
+
 </p>
             <button
                 class="no-pdf"
@@ -542,6 +633,12 @@ async function agregar() {
         congelamiento:
             document.getElementById("congelamiento").value,
 
+        bonificacion:
+            document.getElementById("bonificacion").value || 0,
+
+        bonificacion_aportes:
+            document.getElementById("bonificacionAportes").value || 0,
+
         comentarios:
             document.getElementById("comentarios").value
     };
@@ -563,6 +660,8 @@ async function agregar() {
     document.getElementById("referido").checked = false;
 
     document.getElementById("congelamiento").value = "";
+    document.getElementById("bonificacion").value = "";
+    document.getElementById("bonificacionAportes").value = "";
 
     document.getElementById("vigencia").value = "";
     if (await manejarError(res)) return;
@@ -840,19 +939,166 @@ async function cargarMisCotizaciones() {
 
     const data = await res.json();
 
-    const div = document.getElementById("misResultados");
+    const div =
+        document.getElementById("misResultados");
 
     div.innerHTML = "";
 
     if (data.length === 0) {
 
         div.innerHTML =
-            "<p>No cargaste cotizaciones todavía</p>";
+            "<p>No hay cotizaciones</p>";
 
         return;
     }
 
-    // AGRUPAR POR DNI
+    // =========================
+    // 👑 ADMIN
+    // =========================
+
+    if (esAdmin()) {
+
+        const agrupadasPorVendedora = {};
+
+        data.forEach(c => {
+
+            if (!agrupadasPorVendedora[c.vendedora]) {
+
+                agrupadasPorVendedora[c.vendedora] = [];
+            }
+
+            agrupadasPorVendedora[c.vendedora].push(c);
+        });
+
+        Object.keys(agrupadasPorVendedora).forEach(vendedora => {
+
+            const cotizaciones =
+                agrupadasPorVendedora[vendedora];
+
+            div.innerHTML += `
+
+        <div class="container">
+
+            <div
+                style="
+                    display:flex;
+                    justify-content:space-between;
+                    align-items:center;
+                    gap:20px;
+                    flex-wrap:wrap;
+                "
+            >
+
+                <div>
+
+                    <h2 style="margin-bottom:5px;">
+                        👤 ${vendedora}
+                    </h2>
+
+                    <p style="margin:0;color:#666;">
+                        ${cotizaciones.length}
+                        cotizaciones
+                    </p>
+
+                </div>
+
+                <button
+                    onclick="toggleGrupo('${vendedora}')"
+                >
+                    Ver cotizaciones
+                </button>
+
+            </div>
+
+            <div
+                id="grupo-${vendedora}"
+                style="
+                    display:none;
+                    margin-top:20px;
+                "
+            ></div>
+
+        </div>
+    `;
+
+            const grupo =
+                document.getElementById(`grupo-${vendedora}`);
+
+            cotizaciones.forEach(c => {
+
+                grupo.innerHTML += `
+
+            <div class="card historial-card">
+
+                <p>
+                    🕒 ${formatearFecha(c.fecha)}
+                </p>
+
+                <p>
+                    <b>DNI:</b>
+                    ${c.dni}
+                </p>
+
+                <p>
+                    <b>Cliente:</b>
+                    ${c.nombre || "-"}
+                </p>
+
+                <p>
+                    <b>Plan:</b>
+                    ${c.plan || "-"}
+                </p>
+
+                <p>
+                    <b>Cobertura:</b>
+                    ${c.tipo_cobertura || "-"}
+                </p>
+
+                <p>
+                    <b>Modalidad:</b>
+                    ${c.modalidad || "-"}
+                </p>
+
+                <p>
+                    <b>Valor:</b>
+                    $${c.valor || "-"}
+                </p>
+              <p><b>Bonificación comercial:</b> $${c.bonificacion || 0}</p>
+
+<p><b>Bonificación por aportes:</b> $${c.bonificacion_aportes || 0}</p>
+
+                <p>
+                    <b>Válida hasta:</b>
+                    ${c.vigencia || "-"}
+                </p>
+
+                <p>
+                    <b>Referido:</b>
+                    ${c.referido || "No"}
+                </p>
+
+                <p>
+                    <b>Congelamiento:</b>
+                    ${c.congelamiento || "Sin congelamiento"}
+                </p>
+
+                <p>
+                    <b>Comentario:</b>
+                    ${c.comentarios || "-"}
+                </p>
+
+            </div>
+        `;
+            });
+        });
+
+        return;
+    }
+
+    // =========================
+    // 👤 VENDEDORAS
+    // =========================
+
     const agrupadas = {};
 
     data.forEach(c => {
@@ -864,7 +1110,6 @@ async function cargarMisCotizaciones() {
         agrupadas[c.dni].push(c);
     });
 
-    // CREAR TARJETAS
     Object.keys(agrupadas).forEach(dni => {
 
         const cotizaciones = agrupadas[dni];
@@ -898,7 +1143,7 @@ async function cargarMisCotizaciones() {
                 <button
                     onclick="toggleHistorial('${dni}')"
                 >
-                    📂 Ver historial
+                    Ver historial
                 </button>
 
                 <div
@@ -938,22 +1183,7 @@ async function cargarMisCotizaciones() {
                             </p>
 
                             <p>
-                            <b>Válida hasta:</b>
-                            ${c.vigencia || "-"}
-                            </p>
-
-                            <p>
-                            <b>Referido:</b>
-                            ${c.referido || "No"}
-                            </p>
-                            
-                            <p>
-                            <b>Congelamiento:</b>
-                            ${c.congelamiento || "Sin congelamiento"}
-                            </p>
-
-                            <p>
-                                <b>💬 Comentario:</b>
+                                <b>Comentario:</b>
                                 ${c.comentarios || "-"}
                             </p>
 
@@ -972,6 +1202,20 @@ function toggleHistorial(dni) {
 
     const div =
         document.getElementById(`historial-${dni}`);
+
+    if (div.style.display === "none") {
+
+        div.style.display = "block";
+
+    } else {
+
+        div.style.display = "none";
+    }
+}
+function toggleGrupo(vendedora) {
+
+    const div =
+        document.getElementById(`grupo-${vendedora}`);
 
     if (div.style.display === "none") {
 

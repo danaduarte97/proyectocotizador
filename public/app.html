@@ -136,16 +136,23 @@
                         </option>
 
                     </select>
-
+                    <label>Cobertura</label>
                     <select id="tipoCobertura">
-                        <option value="Individual">Cobertura Individual</option>
+
+                        <option value="Individual">Individual</option>
                         <option value="Grupo Familiar">Grupo Familiar</option>
                     </select>
                     <select id="modalidad">
                         <option value="PARTICULAR">Particular</option>
                         <option value="RD OSTV">RD OSTV</option>
                     </select>
+                    <label>Subtotal</label>
                     <input type="text" id="valor" placeholder="Valor">
+                    <label>Bonificación comercial</label>
+                    <input type="number" id="bonificacion" placeholder="0" />
+
+                    <label>Bonificación por aportes</label>
+                    <input type="number" id="bonificacionAportes" placeholder="0" />
                     <label>
                         Cotización válida hasta
                     </label>
@@ -179,6 +186,7 @@
                         </option>
 
                     </select>
+
                     <textarea id="comentarios" placeholder="Comentarios"></textarea>
 
                     <button onclick="agregar()">Guardar</button>

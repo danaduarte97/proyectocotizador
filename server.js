@@ -132,6 +132,15 @@ CREATE TABLE IF NOT EXISTS comentarios_cotizacion (
     fecha DATETIME DEFAULT (datetime('now', '-3 hours'))
 )
 `);
+    db.run(`
+ALTER TABLE cotizaciones
+ADD COLUMN bonificacion TEXT
+`, () => { });
+
+    db.run(`
+ALTER TABLE cotizaciones
+ADD COLUMN bonificacion_aportes TEXT
+`, () => { });
 
 });
 
@@ -203,6 +212,8 @@ app.post("/agregar", verificarToken, (req, res) => {
         plan,
         tipo_cobertura,
         valor,
+        bonificacion,
+        bonificacion_aportes,
         modalidad,
         vigencia,
         referido,
@@ -222,20 +233,22 @@ app.post("/agregar", verificarToken, (req, res) => {
         `
     INSERT INTO cotizaciones
     (
-        dni,
-        nombre,
-        celular,
-        plan,
-        tipo_cobertura,
-        valor,
-        modalidad,
-        vendedora,
-        vigencia,
-        referido,
-        congelamiento,
-        comentarios
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    dni,
+    nombre,
+    celular,
+    plan,
+    tipo_cobertura,
+    valor,
+    bonificacion,
+    bonificacion_aportes,
+    modalidad,
+    vendedora,
+    vigencia,
+    referido,
+    congelamiento,
+    comentarios
+)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
         [
             dni,
@@ -244,6 +257,8 @@ app.post("/agregar", verificarToken, (req, res) => {
             plan,
             tipo_cobertura,
             valor,
+            bonificacion,
+            bonificacion_aportes,
             modalidad,
             vendedora,
             vigencia,
@@ -559,48 +574,6 @@ app.put("/cambiar-password", verificarToken, async (req, res) => {
     );
 });
 
-
-app.put("/cambiar-password", verificarToken, async (req, res) => {
-
-    const { actual, nueva } = req.body;
-
-    db.get(
-        "SELECT * FROM usuarios WHERE usuario = ?",
-        [req.user.usuario],
-        async (err, user) => {
-
-            if (err) {
-                return res.status(500).json(err);
-            }
-
-            const coincide = await bcrypt.compare(
-                actual,
-                user.password
-            );
-
-            if (!coincide) {
-                return res.status(401).json({
-                    error: "Contraseña actual incorrecta"
-                });
-            }
-
-            const hash = await bcrypt.hash(nueva, 10);
-
-            db.run(
-                "UPDATE usuarios SET password = ? WHERE id = ?",
-                [hash, user.id],
-                function (err) {
-
-                    if (err) {
-                        return res.status(500).json(err);
-                    }
-
-                    res.json({ success: true });
-                }
-            );
-        }
-    );
-});
 
 app.get("/mis-cotizaciones", verificarToken, (req, res) => {
 
