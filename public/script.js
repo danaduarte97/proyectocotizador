@@ -211,78 +211,101 @@ async function buscar() {
         div.innerHTML += `
         <div class="card" id="card-${c.id}">
 
-            <!-- SOLO PDF -->
-           <div class="pdf-header solo-pdf">
+            <div class="solo-pdf pdf-documento">
+                <div class="pdf-header">
+                    <img
+                        src="/img/franja-pdf.png"
+                        class="franja-pdf"
+                        alt="Asismed"
+                    >
+                </div>
 
-    <img
-        src="/img/franja-pdf.png"
-        class="franja-pdf"
-    >
+                <div class="pdf-contenido">
+                    <div class="pdf-titulo">
+                        <p class="pdf-eyebrow">COTIZACIÓN</p>
+                        <h1>${c.nombre || ""}</h1>
+                        <p class="pdf-subtitulo">
+                            DNI ${c.dni} &nbsp;|&nbsp; Tel. ${c.celular || "-"}
+                        </p>
+                    </div>
 
-</div>
+                    <table class="pdf-tabla">
+                        <thead>
+                            <tr>
+                                <th>Detalle</th>
+                                <th>Información</th>
+                                <th>Importe</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Plan</td>
+                                <td>${c.plan || "-"}</td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td>Cobertura</td>
+                                <td>${c.tipo_cobertura || "Individual"}</td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td>Modalidad</td>
+                                <td>${c.modalidad || "PARTICULAR"}</td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td>Valor del plan</td>
+                                <td></td>
+                                <td>$ ${Number(c.valor || 0).toLocaleString("es-AR")}</td>
+                            </tr>
+                            <tr>
+                                <td>Bonificación comercial</td>
+                                <td></td>
+                                <td>- $ ${Number(c.bonificacion || 0).toLocaleString("es-AR")}</td>
+                            </tr>
+                            <tr>
+                                <td>Bonificación por aportes</td>
+                                <td></td>
+                                <td>- $ ${Number(c.bonificacion_aportes || 0).toLocaleString("es-AR")}</td>
+                            </tr>
+                        </tbody>
+                    </table>
 
-<div class="solo-pdf pdf-datos-cliente">
+                    <div class="pdf-total">
+                        <span>Total a pagar</span>
+                        <strong>
+                            $ ${(
+                                Number(c.valor || 0)
+                                - Number(c.bonificacion || 0)
+                                - Number(c.bonificacion_aportes || 0)
+                            ).toLocaleString("es-AR")}
+                        </strong>
+                    </div>
 
-    <h2>Cotización de:</h2>
+                    <div class="pdf-info-adicional">
+                        <p><b>Referido:</b> ${c.referido || "No"}</p>
+                        <p><b>Congelamiento:</b> ${c.congelamiento || "Sin congelamiento"}</p>
+                    </div>
 
-    <h1>${c.nombre || ""}</h1>
+                    <div class="pie-pdf">
+                        <p><b>Fecha:</b> ${new Date(c.fecha).toLocaleDateString("es-AR")}</p>
+                        <p><b>Vigencia:</b> ${c.vigencia || "-"}</p>
+                        <p><b>Asesora comercial:</b> ${c.vendedora}</p>
+                        <p><b>Contacto Asismed:</b> WhatsApp 11 3943-8158</p>
+                    </div>
 
-    <p><b>DNI:</b> ${c.dni}</p>
+                    <p class="pdf-aclaracion">
+                        La presente cotización queda sujeta a variaciones conforme a
+                        actualizaciones, aumentos o ajustes autorizados por Asismed, o a
+                        modificaciones de los datos personales informados. Los cambios
+                        correspondientes serán aplicados en el mes que se indique.
+                    </p>
 
-    <p><b>Teléfono:</b> ${c.celular || "-"}</p>
+                    <p class="pdf-identificador">Cotización N.° ${c.id}</p>
+                </div>
+            </div>
 
-</div>
-<div class="solo-pdf detalle-pdf">
-
-    <h3>DETALLE</h3>
-
-    <p>
-        <b>Plan:</b>
-        ${c.plan}
-    </p>
-
- <p><b>Subtotal:</b> $${c.valor}</p>
-
-<p><b>Bonificación comercial:</b>
-$${c.bonificacion || 0}
-</p>
-
-<p><b>Bonificación por aportes:</b>
-$${c.bonificacion_aportes || 0}
-</p>
-
-    <p>
-        <b>Modalidad:</b>
-        ${c.modalidad}
-    </p>
-
-    <p>
-        <b>Referido:</b>
-        ${c.referido}
-    </p>
-
-</div>
-<div class="solo-pdf total-final">
-
-    <h2>
-
-        TOTAL A PAGAR
-
-        $
-
-        ${(
-                Number(c.valor || 0)
-                - Number(c.bonificacion || 0)
-                - Number(c.bonificacion_aportes || 0)
-            ).toLocaleString("es-AR")}
-
-    </h2>
-
-</div>
-
-            <!-- DECORACIÓN -->
-            <div class="pdf-decoracion solo-pdf"></div>
-
+            <div class="no-pdf">
             <p class="fecha-card">
                 🕒 ${formatearFecha(c.fecha)}
             </p>
@@ -326,31 +349,28 @@ $${c.bonificacion_aportes || 0}
     ${c.congelamiento || "Sin congelamiento"}
 </p>
 
-            <!-- NO PDF -->
-            <p class="no-pdf">
+            <p>
                 <b>💬 Comentario:</b>
                 ${c.comentarios || "Sin comentarios"}
-
-                <div class="comentarios-internos">
-
-    <h4>🗨️ Comentarios internos</h4>
-
-    <div id="comentarios-${c.id}"></div>
-
-    <textarea
-        id="nuevoComentario-${c.id}"
-        placeholder="Escribir comentario..."
-    ></textarea>
-
-    <button onclick="agregarComentario(${c.id})">
-        Agregar comentario
-    </button>
-
-</div>
             </p>
 
-            <!-- NO PDF -->
-            <div class="archivos-box no-pdf">
+            <div class="comentarios-internos">
+
+                <h4>🗨️ Comentarios internos</h4>
+
+                <div id="comentarios-${c.id}"></div>
+
+                <textarea
+                    id="nuevoComentario-${c.id}"
+                    placeholder="Escribir comentario..."
+                ></textarea>
+
+                <button onclick="agregarComentario(${c.id})">
+                    Agregar comentario
+                </button>
+            </div>
+
+            <div class="archivos-box">
 
                 <h4>📎 Adjuntos</h4>
 
@@ -365,41 +385,13 @@ $${c.bonificacion_aportes || 0}
 
             ${(c.vendedora === obtenerPayload().usuario || esAdmin()) ? `
                 <button
-                    class="no-pdf"
                     onclick="abrirModal(${c.id}, \`${c.comentarios || ""}\`)"
                 >
                     Editar comentario
                 </button>
             ` : ""}
-            <div class="solo-pdf pie-pdf">
+            </div>
 
-    <p>
-        Fecha:
-        ${new Date(c.fecha).toLocaleDateString("es-AR")}
-    </p>
-
-    <p>
-        Vigencia hasta:
-        ${c.vigencia || "-"}
-    </p>
-
-    <p>
-        Asesora comercial:
-        ${c.vendedora}
-    </p>
-
-    <p>
-        Contacto Asismed:
-        Whatsapp - 11 3943-8158
-    </p>
-
-</div>
-<!-- SOLO PDF -->
-<p class="solo-pdf pdf-aclaracion">
-
-La presente cotización realizada en el día de la fecha queda expresamente sujeta a variaciones conforme las actualizaciones, aumentos o ajustes que pudiera autorizar Asismed o bien, por modificaciones o actualizaciones de datos personales, los cuales serán aplicados al mes que se indique.
-
-</p>
             <button
                 class="no-pdf"
                 onclick="descargarPDF(${c.id})"
