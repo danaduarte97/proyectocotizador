@@ -174,42 +174,40 @@ function formatearFecha(fecha) {
     }) + ` ${hora}`;
 }
 
+function alternarDetalleCotizacion(id, boton) {
+    const detalle = document.getElementById(`detalle-cotizacion-${id}`);
+
+    if (!detalle) return;
+
+    const estaAbierto = detalle.classList.toggle("abierto");
+
+    detalle.hidden = !estaAbierto;
+    boton.setAttribute("aria-expanded", String(estaAbierto));
+    boton.querySelector(".texto-toggle").textContent =
+        estaAbierto ? "Ocultar detalle" : "Ver detalle";
+    boton.querySelector(".icono-toggle").textContent =
+        estaAbierto ? "−" : "+";
+}
+
 // =======================
 // 🔍 BUSCAR
 // =======================
 
-async function buscar() {
-    const dni = document.getElementById("dni").value;
+function renderTarjetaCotizacion(c, opciones = {}) {
+    const sufijo = opciones.sufijo || c.id;
+    const cardId = opciones.cardId || `card-${c.id}`;
+    const detalleId = `detalle-cotizacion-${sufijo}`;
+    const archivosId = `archivos-${sufijo}`;
+    const comentariosId = `comentarios-${sufijo}`;
+    const textareaId = `nuevoComentario-${sufijo}`;
+    const clases = opciones.clases || "";
+    const comentarioModal = String(c.comentarios || "")
+        .replace(/\\/g, "\\\\")
+        .replace(/`/g, "\\`")
+        .replace(/\$/g, "\\$");
 
-    if (!dni) {
-        alert("Ingresá un DNI");
-        return;
-    }
-    mostrarLoader();
-    const res = await fetch(`/buscar/${dni}`, {
-        headers: authHeaders()
-    });
-
-    if (await manejarError(res)) return;
-
-    const data = await res.json();
-    ocultarLoader();
-
-    const div = document.getElementById("resultados");
-    div.innerHTML = "";
-
-    if (data.length === 0) {
-        div.innerHTML = "<p>No hay cotizaciones</p>";
-        return;
-    }
-
-    document.getElementById("nombre").value = data[0].nombre || "";
-    document.getElementById("celular").value = data[0].celular || "";
-
-    data.forEach(c => {
-
-        div.innerHTML += `
-        <div class="card" id="card-${c.id}">
+    return `
+        <div class="card ${clases}" id="${cardId}">
 
             <div class="solo-pdf pdf-documento">
                 <div class="pdf-header">
@@ -305,113 +303,177 @@ async function buscar() {
                 </div>
             </div>
 
-            <div class="no-pdf">
-            <p class="fecha-card">
-                🕒 ${formatearFecha(c.fecha)}
-            </p>
-            <p><b>DNI:</b> ${c.dni}</p>
-            <p> <b>Teléfono:</b> ${c.celular || "-"}</p>
+            <div class="cotizacion-resumen no-pdf">
+                <div class="cotizacion-resumen-datos">
+                    <p class="fecha-card">
+                        🕒 ${formatearFecha(c.fecha)}
+                    </p>
+                    <div class="cotizacion-resumen-grid">
+                        <p><b>DNI:</b> ${c.dni}</p>
+                        <p><b>Teléfono:</b> ${c.celular || "-"}</p>
+                        <p><b>Asesora:</b> ${c.vendedora}</p>
+                    </div>
+                </div>
 
-            <p><b>Asesora:</b> ${c.vendedora}</p>
-
-            <p><b>Plan:</b> ${c.plan}</p>
-            <p>
-            
-            <b>Cobertura:</b> ${c.tipo_cobertura || "Individual"} </p>
-            
-
-            <p><b>Valor:</b> $${c.valor}</p>
-            <p>
-            <p>
-    <b>Bonificación comercial:</b>
-    $${c.bonificacion || 0}
-</p>
-
-<p>
-    <b>Bonificación por aportes:</b>
-    $${c.bonificacion_aportes || 0}
-</p>
-    <b>Modalidad:</b>
-    ${c.modalidad || "PARTICULAR"}
-</p>
-<p>
-    <b>Válida hasta:</b>
-    ${c.vigencia || "-"}
-</p>
-
-<p>
-    <b>Referido:</b>
-    ${c.referido || "No"}
-</p>
-
-<p>
-    <b>Congelamiento:</b>
-    ${c.congelamiento || "Sin congelamiento"}
-</p>
-
-            <p>
-                <b>💬 Comentario:</b>
-                ${c.comentarios || "Sin comentarios"}
-            </p>
-
-            <div class="comentarios-internos">
-
-                <h4>🗨️ Comentarios internos</h4>
-
-                <div id="comentarios-${c.id}"></div>
-
-                <textarea
-                    id="nuevoComentario-${c.id}"
-                    placeholder="Escribir comentario..."
-                ></textarea>
-
-                <button onclick="agregarComentario(${c.id})">
-                    Agregar comentario
-                </button>
-            </div>
-
-            <div class="archivos-box">
-
-                <h4>📎 Adjuntos</h4>
-
-                <input
-                    type="file"
-                    onchange="subirArchivo(event, ${c.id})"
-                >
-
-                <div id="archivos-${c.id}"></div>
-
-            </div>
-
-            ${(c.vendedora === obtenerPayload().usuario || esAdmin()) ? `
                 <button
-                    onclick="abrirModal(${c.id}, \`${c.comentarios || ""}\`)"
+                    type="button"
+                    class="cotizacion-toggle"
+                    aria-expanded="false"
+                    aria-controls="${detalleId}"
+                    onclick="alternarDetalleCotizacion('${sufijo}', this)"
                 >
-                    Editar comentario
+                    <span class="texto-toggle">Ver detalle</span>
+                    <span class="icono-toggle" aria-hidden="true">+</span>
                 </button>
-            ` : ""}
             </div>
 
-            <button
-                class="no-pdf"
-                onclick="descargarPDF(${c.id})"
+            <div
+                class="cotizacion-detalle no-pdf"
+                id="${detalleId}"
+                hidden
             >
-                📄 Descargar PDF
-            </button>
+                <div class="cotizacion-detalle-grid">
+                    <p><b>Nombre:</b> ${c.nombre || "-"}</p>
+                    <p><b>Plan:</b> ${c.plan || "-"}</p>
+                    <p><b>Cobertura:</b> ${c.tipo_cobertura || "Individual"}</p>
+                    <p><b>Valor:</b> $${c.valor || 0}</p>
+                    <p><b>Bonificación comercial:</b> $${c.bonificacion || 0}</p>
+                    <p><b>Bonificación por aportes:</b> $${c.bonificacion_aportes || 0}</p>
+                    <p><b>Modalidad:</b> ${c.modalidad || "PARTICULAR"}</p>
+                    <p><b>Válida hasta:</b> ${c.vigencia || "-"}</p>
+                    <p><b>Referido:</b> ${c.referido || "No"}</p>
+                    <p><b>Congelamiento:</b> ${c.congelamiento || "Sin congelamiento"}</p>
+                </div>
+
+                <div class="cotizacion-comentario">
+                    <p>
+                        <b>💬 Comentario:</b>
+                        ${c.comentarios || "Sin comentarios"}
+                    </p>
+                </div>
+
+                <div class="comentarios-internos">
+                    <h4>🗨️ Comentarios internos</h4>
+
+                    <div id="${comentariosId}"></div>
+
+                    <textarea
+                        id="${textareaId}"
+                        placeholder="Escribir comentario..."
+                    ></textarea>
+
+                    <button onclick="agregarComentario(${c.id}, '${textareaId}', '${comentariosId}')">
+                        Agregar comentario
+                    </button>
+                </div>
+
+                <div class="archivos-box">
+                    <h4>📎 Adjuntos</h4>
+
+                    <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
+                        onchange="subirArchivo(event, ${c.id}, '${archivosId}')"
+                    >
+
+                    <div id="${archivosId}"></div>
+                </div>
+
+                <div class="cotizacion-acciones">
+                    ${(c.vendedora === obtenerPayload().usuario || esAdmin()) ? `
+                        <button
+                            onclick="abrirModal(${c.id}, \`${comentarioModal}\`)"
+                        >
+                            Editar comentario
+                        </button>
+                    ` : ""}
+
+                    <button
+                        onclick="descargarPDF(${c.id})"
+                        style="display:flex;align-items:center;gap:8px;"
+                    >
+                        <img
+                            class="icono-menu"
+                            src="img/imgicon-pdf.png"
+                            alt=""
+                        >
+                        <span>Descargar PDF</span>
+                    </button>
+                </div>
+            </div>
 
         </div>
     `;
+}
+
+async function buscar() {
+    const termino = document.getElementById("dni").value.trim();
+
+    if (!termino) {
+        alert("Ingresá un DNI o teléfono");
+        return;
+    }
+    mostrarLoader();
+    const res = await fetch(`/buscar/${encodeURIComponent(termino)}`, {
+        headers: authHeaders()
+    });
+
+    if (await manejarError(res)) return;
+
+    const data = await res.json();
+    ocultarLoader();
+
+    const div = document.getElementById("resultados");
+    div.innerHTML = "";
+
+    if (data.length === 0) {
+        div.innerHTML = "<p>No hay cotizaciones</p>";
+        return;
+    }
+
+    document.getElementById("nombre").value = data[0].nombre || "";
+    document.getElementById("celular").value = data[0].celular || "";
+
+    data.forEach(c => {
+        div.innerHTML += renderTarjetaCotizacion(c);
 
         cargarArchivos(c.id);
         cargarComentarios(c.id);
     });
 }
 
-async function subirArchivo(event, cotizacionId) {
+async function subirArchivo(event, cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
 
+    const input = event.target;
     const file = event.target.files[0];
 
     if (!file) return;
+
+    const extensionesPermitidas =
+        /\.(jpe?g|png|webp|heic|heif)$/i;
+
+    const esHeic = /\.(heic|heif)$/i.test(file.name);
+    const tipoCompatible =
+        file.type.startsWith("image/") ||
+        (esHeic && (
+            !file.type ||
+            file.type === "application/octet-stream"
+        ));
+
+    if (!tipoCompatible || !extensionesPermitidas.test(file.name)) {
+        mostrarToast(
+            "Seleccioná una imagen JPG, PNG, WEBP o HEIC",
+            "error"
+        );
+        input.value = "";
+        return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+        mostrarToast("La imagen no puede superar los 5 MB", "error");
+        input.value = "";
+        return;
+    }
 
     const formData = new FormData();
     formData.append("archivo", file);
@@ -427,34 +489,97 @@ async function subirArchivo(event, cotizacionId) {
     });
 
     if (res.ok) {
-        mostrarToast("Archivo subido", "success");
-        buscar();
+        mostrarToast("Imagen adjuntada", "success");
+        input.value = "";
+        cargarArchivos(cotizacionId, contenedorId);
     } else {
-        mostrarToast("Error al subir", "error");
+        const error = await res.json().catch(() => ({}));
+        mostrarToast(error.error || "Error al subir la imagen", "error");
     }
 }
-async function cargarArchivos(cotizacionId) {
+
+function escaparHtml(texto) {
+    const elemento = document.createElement("div");
+    elemento.textContent = texto || "";
+    return elemento.innerHTML;
+}
+
+async function cargarArchivos(cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
 
     const res = await fetch(`/archivos/${cotizacionId}`, {
         headers: authHeaders()
     });
 
-    const archivos = await res.json();
+    const div = document.getElementById(contenedorId);
 
-    const div = document.getElementById(`archivos-${cotizacionId}`);
+    if (!div) return;
+
+    if (!res.ok) {
+        div.innerHTML = "<p>No se pudieron cargar los adjuntos.</p>";
+        return;
+    }
+
+    const archivos = await res.json();
 
     div.innerHTML = "";
 
+    if (archivos.length === 0) {
+        div.innerHTML = '<p class="sin-adjuntos">Sin imágenes adjuntas.</p>';
+        return;
+    }
+
     archivos.forEach(a => {
+        const ruta = `/uploads/${encodeURIComponent(a.archivo)}`;
 
         div.innerHTML += `
-            <a href="/uploads/${a.archivo}" target="_blank">
-                📎 ${a.nombre}
-            </a><br>
+            <div class="adjunto-item">
+                <a
+                    class="adjunto-imagen"
+                    href="${ruta}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Abrir ${escaparHtml(a.nombre)}"
+                >
+                    <img
+                        src="${ruta}"
+                        alt="${escaparHtml(a.nombre)}"
+                        loading="lazy"
+                    >
+                    <span>${escaparHtml(a.nombre)}</span>
+                </a>
+                <button
+                    type="button"
+                    class="adjunto-eliminar"
+                    onclick="eliminarArchivo(${a.id}, ${cotizacionId}, '${contenedorId}')"
+                    aria-label="Eliminar ${escaparHtml(a.nombre)}"
+                    title="Eliminar imagen"
+                >
+                    Eliminar
+                </button>
+            </div>
         `;
     });
 }
-async function cargarComentarios(cotizacionId) {
+
+async function eliminarArchivo(archivoId, cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
+    if (!confirm("¿Querés eliminar esta imagen adjunta?")) return;
+
+    const res = await fetch(`/archivos/${archivoId}`, {
+        method: "DELETE",
+        headers: authHeaders()
+    });
+
+    if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        mostrarToast(error.error || "No se pudo eliminar la imagen", "error");
+        return;
+    }
+
+    mostrarToast("Imagen eliminada", "success");
+    cargarArchivos(cotizacionId, contenedorId);
+}
+
+async function cargarComentarios(cotizacionId, contenedorId = `comentarios-${cotizacionId}`) {
 
     const res = await fetch(`/comentarios/${cotizacionId}`, {
         headers: authHeaders()
@@ -463,7 +588,7 @@ async function cargarComentarios(cotizacionId) {
     const comentarios = await res.json();
 
     const div =
-        document.getElementById(`comentarios-${cotizacionId}`);
+        document.getElementById(contenedorId);
 
     if (!div) return;
 
@@ -487,11 +612,15 @@ async function cargarComentarios(cotizacionId) {
     });
 }
 
-async function agregarComentario(cotizacionId) {
+async function agregarComentario(
+    cotizacionId,
+    textareaId = `nuevoComentario-${cotizacionId}`,
+    contenedorId = `comentarios-${cotizacionId}`
+) {
 
     const textarea =
         document.getElementById(
-            `nuevoComentario-${cotizacionId}`
+            textareaId
         );
 
     const comentario = textarea.value;
@@ -508,7 +637,7 @@ async function agregarComentario(cotizacionId) {
 
         textarea.value = "";
 
-        cargarComentarios(cotizacionId);
+        cargarComentarios(cotizacionId, contenedorId);
 
         mostrarToast(
             "Comentario agregado",
@@ -800,7 +929,9 @@ window.onload = function () {
     const user = document.getElementById("usuarioLogueado");
     if (user) {
         user.innerHTML = `
-    👤 ${payload.usuario} ⌄
+    <img class="icono-menu" src="img/imgicon-usuario.png" alt="">
+    <span>${payload.usuario}</span>
+    <span aria-hidden="true">⌄</span>
 `;
     }
 
@@ -812,6 +943,7 @@ window.onload = function () {
 
     cargarUsuarios();
     calcularIMCAutomatico();
+    calcularIMCPediatrico();
 };
 
 // =======================
@@ -855,12 +987,21 @@ function mostrarSeccion(seccion) {
 
         const titulo =
             esAdmin()
-                ? "📋 Cotizaciones generales"
-                : "📂 Mis cotizaciones";
+                ? "Cotizaciones generales"
+                : "Mis cotizaciones";
 
         document.getElementById(
             "tituloCotizaciones"
-        ).textContent = titulo;
+        ).innerHTML = `
+            <span class="titulo-con-icono">
+                <img
+                    class="icono-seccion"
+                    src="img/imgicon-cotizacion-general.png"
+                    alt=""
+                >
+                <span>${titulo}</span>
+            </span>
+        `;
 
         cargarMisCotizaciones();
     }
@@ -983,8 +1124,13 @@ async function cargarMisCotizaciones() {
 
                 <div>
 
-                    <h2 style="margin-bottom:5px;">
-                        👤 ${vendedora}
+                    <h2 style="margin-bottom:5px;display:flex;align-items:center;gap:8px;">
+                        <img
+                            src="img/imgicon-asesora.png"
+                            alt=""
+                            style="height:22px;width:auto;flex-shrink:0;"
+                        >
+                        ${vendedora}
                     </h2>
 
                     <p style="margin:0;color:#666;">
@@ -1017,70 +1163,15 @@ async function cargarMisCotizaciones() {
                 document.getElementById(`grupo-${vendedora}`);
 
             cotizaciones.forEach(c => {
+                const sufijo = `mis-admin-${c.id}`;
 
-                grupo.innerHTML += `
+                grupo.innerHTML += renderTarjetaCotizacion(c, {
+                    sufijo,
+                    clases: "historial-card"
+                });
 
-            <div class="card historial-card">
-
-                <p>
-                    🕒 ${formatearFecha(c.fecha)}
-                </p>
-
-                <p>
-                    <b>DNI:</b>
-                    ${c.dni}
-                </p>
-
-                <p>
-                    <b>Cliente:</b>
-                    ${c.nombre || "-"}
-                </p>
-
-                <p>
-                    <b>Plan:</b>
-                    ${c.plan || "-"}
-                </p>
-
-                <p>
-                    <b>Cobertura:</b>
-                    ${c.tipo_cobertura || "-"}
-                </p>
-
-                <p>
-                    <b>Modalidad:</b>
-                    ${c.modalidad || "-"}
-                </p>
-
-                <p>
-                    <b>Valor:</b>
-                    $${c.valor || "-"}
-                </p>
-              <p><b>Bonificación comercial:</b> $${c.bonificacion || 0}</p>
-
-<p><b>Bonificación por aportes:</b> $${c.bonificacion_aportes || 0}</p>
-
-                <p>
-                    <b>Válida hasta:</b>
-                    ${c.vigencia || "-"}
-                </p>
-
-                <p>
-                    <b>Referido:</b>
-                    ${c.referido || "No"}
-                </p>
-
-                <p>
-                    <b>Congelamiento:</b>
-                    ${c.congelamiento || "Sin congelamiento"}
-                </p>
-
-                <p>
-                    <b>Comentario:</b>
-                    ${c.comentarios || "-"}
-                </p>
-
-            </div>
-        `;
+                cargarArchivos(c.id, `archivos-${sufijo}`);
+                cargarComentarios(c.id, `comentarios-${sufijo}`);
             });
         });
 
@@ -1088,7 +1179,7 @@ async function cargarMisCotizaciones() {
     }
 
     // =========================
-    // 👤 VENDEDORAS
+    // VENDEDORAS
     // =========================
 
     const agrupadas = {};
@@ -1146,47 +1237,22 @@ async function cargarMisCotizaciones() {
                     "
                 >
 
-                    ${cotizaciones.map(c => `
-
-                        <div class="card historial-card">
-
-                            <p>
-                                🕒 ${formatearFecha(c.fecha)}
-                            </p>
-
-                            <p>
-                                <b>Plan:</b>
-                                ${c.plan || "-"}
-                            </p>
-
-                            <p>
-                                <b>Cobertura:</b>
-                                ${c.tipo_cobertura || "-"}
-                            </p>
-
-                            <p>
-                                <b>Modalidad:</b>
-                                ${c.modalidad || "-"}
-                            </p>
-
-                            <p>
-                                <b>Valor:</b>
-                                $${c.valor || "-"}
-                            </p>
-
-                            <p>
-                                <b>Comentario:</b>
-                                ${c.comentarios || "-"}
-                            </p>
-
-                        </div>
-
-                    `).join("")}
+                    ${cotizaciones.map(c => renderTarjetaCotizacion(c, {
+                        sufijo: `mis-vendedora-${c.id}`,
+                        clases: "historial-card"
+                    })).join("")}
 
                 </div>
 
             </div>
         `;
+
+        cotizaciones.forEach(c => {
+            const sufijo = `mis-vendedora-${c.id}`;
+
+            cargarArchivos(c.id, `archivos-${sufijo}`);
+            cargarComentarios(c.id, `comentarios-${sufijo}`);
+        });
     });
 }
 
@@ -1377,53 +1443,44 @@ function calcularIMCPediatrico() {
         peso / (altura * altura);
 
     let estado = "";
+    let mensaje = "";
 
     // ORIENTATIVO SIMPLE
 
     if (imc < 14) {
 
         estado = "Bajo peso";
+        mensaje =
+            "El valor se encuentra por debajo del rango orientativo para la edad.";
 
     } else if (imc < 18) {
 
         estado = "Peso normal";
+        mensaje =
+            "El valor se encuentra dentro del rango orientativo esperado.";
 
     } else if (imc < 21) {
 
         estado = "Sobrepeso";
+        mensaje =
+            "El valor se encuentra por encima del rango orientativo esperado.";
 
     } else {
 
         estado = "Obesidad";
+        mensaje =
+            "El valor es elevado y requiere evaluación profesional.";
     }
 
-    document.getElementById(
-        "resultadoIMCPediatrico"
-    ).innerHTML = `
+    document.getElementById("imcNumeroPediatrico")
+        .textContent = imc.toFixed(1);
 
-        <div class="card">
+    document.getElementById("imcEstadoPediatrico")
+        .textContent = estado;
 
-            <h3>
-                👦 IMC Pediátrico:
-                ${imc.toFixed(1)}
-            </h3>
-
-            <p>
-                <b>${estado}</b>
-            </p>
-
-            <small style="
-                color:gray;
-                display:block;
-                margin-top:10px;
-            ">
-                Resultado orientativo.
-                La evaluación definitiva depende
-                de percentiles pediátricos.
-            </small>
-
-        </div>
-    `;
+    document.getElementById("imcTextoPediatrico")
+        .textContent =
+        `${mensaje} La evaluación definitiva depende de percentiles pediátricos.`;
 }
 
 // =======================

@@ -32,23 +32,32 @@
 
             <nav>
 
-                <button onclick="mostrarSeccion('cotizador')">📊 Cotizador</button>
+                <button onclick="mostrarSeccion('cotizador')">
+                    <img class="icono-menu" src="img/imgicon-cotizador.png" alt="">
+                    <span>Cotizador</span></button>
                 <button onclick="mostrarSeccion('misCotizaciones')">
-                    🔍 Cotizaciones
+                    <img class="icono-menu" src="img/imgicon-busqueda.png" alt="">
+                    <span>Cotizaciones</span>
                 </button>
                 <button onclick="mostrarSeccion('calculadoras')">
-                    ⚖️ Calculadora IMC
+                    <img class="icono-menu" src="img/imgicon-balanza.png" alt="">
+                    <span>Calculadora IMC</span>
                 </button>
                 <button onclick="mostrarSeccion('biblioteca')">
-                    📁 Biblioteca
+                    <img class="icono-menu" src="img/imgicon-biblioteca-carpeta.png" alt="">
+                    <span>Biblioteca</span>
                 </button>
 
                 <button id="btnUsuarios" onclick="mostrarSeccion('usuarios')">
-                    👥 Usuarios
+                    <img class="icono-menu" src="img/imgicon-conjunto-usuarios.png" alt="">
+                    <span>Usuarios</span>
                 </button>
             </nav>
 
-            <button class="logout" onclick="logout()">Cerrar sesión</button>
+            <button class="logout" onclick="logout()">
+                <img class="icono-menu" src="img/imgicon-cerrar-sesion.png" alt="">
+                <span>Cerrar sesión</span>
+            </button>
         </aside>
         <div class="overlay" id="overlay" onclick="toggleMenu()"></div>
 
@@ -77,11 +86,13 @@
                     <div id="userDropdown" class="user-dropdown">
 
                         <button onclick="mostrarSeccion('perfil')">
-                            🔐 Mi contraseña
+                            <img class="icono-menu" src="img/imgicon-password.png" alt="">
+                            <span>Cambiar contraseña</span>
                         </button>
 
                         <button onclick="logout()">
-                            🚪 Cerrar sesión
+                            <img class="icono-menu" src="img/imgicon-cerrar-sesion.png" alt="">
+                            <span>Cerrar sesión</span>
                         </button>
 
                     </div>
@@ -95,7 +106,7 @@
 
                 <div class="container">
                     <h2>Buscar cliente</h2>
-                    <input type="text" id="dni" placeholder="DNI">
+                    <input type="text" id="dni" placeholder="Buscar por DNI o teléfono">
                     <button onclick="buscar()">Buscar</button>
 
                     <div id="resultados"></div>
@@ -198,7 +209,10 @@
             <section id="usuarios" class="seccion" style="display:none;">
 
                 <div class="container">
-                    <h2>Usuarios</h2>
+                    <h2 class="titulo-con-icono">
+                        <img class="icono-seccion" src="img/imgicon-conjunto-usuarios.png" alt="">
+                        <span>Usuarios</span>
+                    </h2>
                     <div id="listaUsuarios"></div>
                 </div>
 
@@ -222,10 +236,16 @@
             <section id="biblioteca" class="seccion" style="display:none;">
 
                 <div class="container">
-                    <h2>📁 Biblioteca</h2>
+                    <h2 class="titulo-con-icono">
+                        <img class="icono-seccion" src="img/imgicon-biblioteca-carpeta.png" alt="">
+                        <span>Biblioteca</span>
+                    </h2>
 
                     <div class="card">
-                        <h3>📄 Documentos y procedimientos</h3>
+                        <h3 class="titulo-con-icono">
+                            <img class="icono-menu" src="img/imgicon-pdf.png" alt="">
+                            <span>Documentos y procedimientos</span>
+                        </h3>
 
                         <a href="archivos/Guia-de-procedimientos-Y-Utilidades.pdf" target="_blank">
                             <button>Abrir</button>
@@ -242,7 +262,7 @@
 
                     <div class="imc-left">
 
-                        <h2>⚖️ IMC Adultos</h2>
+                        <h2>IMC Adultos</h2>
 
                         <label>Tu altura</label>
 
@@ -285,18 +305,18 @@
                     <div class="imc-resultado-card">
 
                         <p class="imc-titulo">
-                            TU IMC
+                            ÍNDICE DE MASA CORPORAL
                         </p>
 
-                        <h1 id="imcNumero">
+                        <h1 id="imcNumero" class="imc-numero">
                             24.2
                         </h1>
 
-                        <h3 id="imcEstado">
+                        <h3 id="imcEstado" class="imc-estado">
                             Normal
                         </h3>
 
-                        <p id="imcTexto">
+                        <p id="imcTexto" class="imc-texto">
                             Tu peso está dentro del rango saludable.
                         </p>
 
@@ -305,65 +325,88 @@
                 </div>
 
                 <!-- IMC PEDIÁTRICO -->
-                <div class="container">
+                <div class="container imc-container">
 
-                    <h2>👦 IMC Pediátrico</h2>
+                    <div class="imc-left">
 
-                    <label>Edad</label>
+                        <h2>IMC niños (2 a 19 años)</h2>
 
-                    <div class="imc-row">
+                        <label>Edad</label>
 
-                        <input type="range" id="edadRange" min="2" max="18" value="6" oninput="syncEdad(this.value)">
+                        <div class="imc-row">
 
-                        <div class="imc-box">
+                            <input type="range" id="edadRange" min="2" max="18" value="6"
+                                oninput="syncEdad(this.value); calcularIMCPediatrico();">
 
-                            <input type="number" id="edadNino" value="6" oninput="syncEdadInput(this.value)">
+                            <div class="imc-box">
 
-                            <small>años</small>
+                                <input type="number" id="edadNino" value="6"
+                                    oninput="syncEdadInput(this.value); calcularIMCPediatrico();">
+
+                                <small>años</small>
+
+                            </div>
+
+                        </div>
+
+                        <label>Tu altura</label>
+
+                        <div class="imc-row">
+
+                            <input type="range" id="alturaNinoRange" min="80" max="220" value="115"
+                                oninput="syncAlturaNino(this.value); calcularIMCPediatrico();">
+
+                            <div class="imc-box">
+
+                                <input type="number" id="alturaNino" value="115"
+                                    oninput="syncAlturaNinoInput(this.value); calcularIMCPediatrico();">
+
+                                <small>cm</small>
+
+                            </div>
+
+                        </div>
+
+                        <label>Tu peso</label>
+
+                        <div class="imc-row">
+
+                            <input type="range" id="pesoNinoRange" min="10" max="150" value="20"
+                                oninput="syncPesoNino(this.value); calcularIMCPediatrico();">
+
+                            <div class="imc-box">
+
+                                <input type="number" id="pesoNino" value="20"
+                                    oninput="syncPesoNinoInput(this.value); calcularIMCPediatrico();">
+
+                                <small>kg</small>
+
+                            </div>
 
                         </div>
 
                     </div>
 
-                    <label>Tu altura</label>
+                    <div class="imc-resultado-card">
 
-                    <div class="imc-row">
+                        <p class="imc-titulo">
+                            IMC PEDIÁTRICO
+                        </p>
 
-                        <input type="range" id="alturaNinoRange" min="80" max="220" value="115"
-                            oninput="syncAlturaNino(this.value)">
+                        <h1 id="imcNumeroPediatrico" class="imc-numero">
+                            15.1
+                        </h1>
 
-                        <div class="imc-box">
+                        <h3 id="imcEstadoPediatrico" class="imc-estado">
+                            Peso normal
+                        </h3>
 
-                            <input type="number" id="alturaNino" value="115" oninput="syncAlturaNinoInput(this.value)">
-
-                            <small>cm</small>
-
-                        </div>
-
-                    </div>
-
-                    <label>Tu peso</label>
-
-                    <div class="imc-row">
-
-                        <input type="range" id="pesoNinoRange" min="10" max="150" value="20"
-                            oninput="syncPesoNino(this.value)">
-
-                        <div class="imc-box">
-
-                            <input type="number" id="pesoNino" value="20" oninput="syncPesoNinoInput(this.value)">
-
-                            <small>kg</small>
-
-                        </div>
+                        <p id="imcTextoPediatrico" class="imc-texto">
+                            Resultado orientativo según edad. La evaluación definitiva depende de percentiles
+                            pediátricos.
+                        </p>
 
                     </div>
-
-                    <button onclick="calcularIMCPediatrico()">
-                        Calcular IMC Pediátrico
-                    </button>
-
-                    <div id="resultadoIMCPediatrico"></div>
 
                 </div>
 
@@ -403,7 +446,10 @@
                 <div class="container">
 
                     <h2 id="tituloCotizaciones">
-                        Mis cotizaciones
+                        <span class="titulo-con-icono">
+                            <img class="icono-seccion" src="img/imgicon-cotizacion-general.png" alt="">
+                            <span>Mis cotizaciones</span>
+                        </span>
                     </h2>
 
                     <div id="misResultados"></div>
