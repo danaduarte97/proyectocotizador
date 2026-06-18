@@ -715,6 +715,74 @@ button:hover {
   margin: 0;
 }
 
+.cotizaciones-filtros {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.cotizaciones-filtros select,
+.cotizaciones-filtros input,
+.cotizaciones-filtros button {
+  margin: 0;
+}
+
+.seguimientos-hoy {
+  margin: 18px 0;
+}
+
+.seguimientos-hoy h3 {
+  margin: 0 0 10px;
+  color: #1b4f72;
+  font-size: 17px;
+}
+
+.seguimiento-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d6e4f0;
+  border-radius: 10px;
+  background: #f8fbfd;
+  color: #405466;
+  font-size: 14px;
+}
+
+.seguimiento-item + .seguimiento-item {
+  margin-top: 8px;
+}
+
+.seguimiento-item button {
+  width: auto;
+  margin: 0;
+}
+
+.seguimiento-controles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.seguimiento-controles label {
+  color: #1b4f72;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.seguimiento-controles select,
+.seguimiento-controles input {
+  margin-top: 6px;
+}
+
+.seguimiento-controles button {
+  align-self: end;
+  margin: 0;
+}
+
 .archivos-box input[type=file] {
   margin-bottom: 10px;
 }
@@ -814,6 +882,14 @@ button:hover {
   }
   .cotizacion-toggle {
     width: 100%;
+  }
+  .cotizaciones-filtros,
+  .seguimiento-controles {
+    grid-template-columns: 1fr;
+  }
+  .seguimiento-item {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 input,

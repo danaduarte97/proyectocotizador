@@ -452,6 +452,36 @@
                         </span>
                     </h2>
 
+                    <div class="cotizaciones-filtros no-pdf">
+                        <select id="filtroEstado" onchange="cargarMisCotizaciones()">
+                            <option value="">Todos los estados</option>
+                        </select>
+
+                        <select id="filtroAsesora" onchange="cargarMisCotizaciones()">
+                            <option value="">Todas las asesoras</option>
+                        </select>
+
+                        <input
+                            type="date"
+                            id="filtroFechaDesde"
+                            onchange="cargarMisCotizaciones()"
+                            aria-label="Fecha desde"
+                        >
+
+                        <input
+                            type="date"
+                            id="filtroFechaHasta"
+                            onchange="cargarMisCotizaciones()"
+                            aria-label="Fecha hasta"
+                        >
+
+                        <button type="button" onclick="limpiarFiltrosCotizaciones()">
+                            Limpiar filtros
+                        </button>
+                    </div>
+
+                    <div id="seguimientosHoy" class="seguimientos-hoy no-pdf"></div>
+
                     <div id="misResultados"></div>
 
                 </div>

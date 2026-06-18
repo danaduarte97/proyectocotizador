@@ -1,7 +1,7 @@
 console.log("JS CARGADO");
 
 // =======================
-// 🔐 TOKEN / AUTH
+// Ã°Å¸â€Â TOKEN / AUTH
 // =======================
 
 function obtenerPayload() {
@@ -24,7 +24,7 @@ function esAdmin() {
     return payload && payload.rol === "admin";
 }
 
-// 🔐 HEADERS CON TOKEN (Bearer)
+// Ã°Å¸â€Â HEADERS CON TOKEN (Bearer)
 function authHeaders(extra = {}) {
     const token = localStorage.getItem("token");
 
@@ -35,16 +35,16 @@ function authHeaders(extra = {}) {
     };
 }
 
-// 🚨 SI NO HAY TOKEN → LOGIN
+// Ã°Å¸Å¡Â¨ SI NO HAY TOKEN Ã¢â€ â€™ LOGIN
 const token = localStorage.getItem("token");
 if (!token) {
     window.location.href = "/login.html";
 }
 
-// 🚨 MANEJO GLOBAL DE ERRORES
+// Ã°Å¸Å¡Â¨ MANEJO GLOBAL DE ERRORES
 async function manejarError(res) {
     if (res.status === 401 || res.status === 403) {
-        mostrarToast("Sesión expirada o no autorizada", "error");
+        mostrarToast("SesiÃƒÂ³n expirada o no autorizada", "error");
         logout();
         return true;
     }
@@ -68,12 +68,12 @@ function ocultarLoader() {
 
 
 // =======================
-// 👥 USUARIOS
+// Ã°Å¸â€˜Â¥ USUARIOS
 // =======================
 
 async function cargarUsuarios() {
 
-    // 👀 SOLO ADMIN
+    // Ã°Å¸â€˜â‚¬ SOLO ADMIN
     if (!esAdmin()) {
         document.getElementById("listaUsuarios").innerHTML = "";
         return;
@@ -100,11 +100,11 @@ async function cargarUsuarios() {
 
                 <div>
                     ${esAdmin() ? `
-                        <button onclick="editarUsuario(${user.id})">✏️</button>
+                        <button onclick="editarUsuario(${user.id})">Ã¢Å“ÂÃ¯Â¸Â</button>
                     ` : ""}
 
                     ${esAdmin() && user.usuario !== "admin" ? `
-                        <button onclick="eliminarUsuario(${user.id})">🗑️</button>
+                        <button onclick="eliminarUsuario(${user.id})">Ã°Å¸â€”â€˜Ã¯Â¸Â</button>
                     ` : ""}
                 </div>
             </div>
@@ -118,7 +118,7 @@ async function eliminarUsuario(id) {
         return;
     }
 
-    if (!confirm("¿Seguro que querés eliminar este usuario?")) return;
+    if (!confirm("Ã‚Â¿Seguro que querÃƒÂ©s eliminar este usuario?")) return;
 
     const res = await fetch(`/usuarios/${id}`, {
         method: "DELETE",
@@ -186,12 +186,45 @@ function alternarDetalleCotizacion(id, boton) {
     boton.querySelector(".texto-toggle").textContent =
         estaAbierto ? "Ocultar detalle" : "Ver detalle";
     boton.querySelector(".icono-toggle").textContent =
-        estaAbierto ? "−" : "+";
+        estaAbierto ? "-" : "+";
 }
 
 // =======================
-// 🔍 BUSCAR
+// Ã°Å¸â€Â BUSCAR
 // =======================
+
+const ESTADOS_COTIZACION = [
+    "Nuevo",
+    "Contactado",
+    "Pendiente de pago",
+    "No responde",
+    "Abonó",
+    "Perdido"
+];
+
+function estadoCotizacion(c) {
+    return c.estado || "Nuevo";
+}
+
+function opcionesEstadoCotizacion(estadoActual) {
+    return ESTADOS_COTIZACION.map(estado => `
+        <option value="${estado}" ${estado === estadoActual ? "selected" : ""}>
+            ${estado}
+        </option>
+    `).join("");
+}
+
+function fechaSeguimientoInput(fecha) {
+    if (!fecha) return "";
+
+    return String(fecha).slice(0, 10);
+}
+
+function fechaActualInput() {
+    return new Date().toLocaleDateString("sv-SE", {
+        timeZone: "America/Argentina/Buenos_Aires"
+    });
+}
 
 function renderTarjetaCotizacion(c, opciones = {}) {
     const sufijo = opciones.sufijo || c.id;
@@ -200,11 +233,18 @@ function renderTarjetaCotizacion(c, opciones = {}) {
     const archivosId = `archivos-${sufijo}`;
     const comentariosId = `comentarios-${sufijo}`;
     const textareaId = `nuevoComentario-${sufijo}`;
+    const estadoId = `estado-${sufijo}`;
+    const seguimientoId = `fechaSeguimiento-${sufijo}`;
+    const estadoActual = estadoCotizacion(c);
+    const fechaSeguimiento = fechaSeguimientoInput(c.fecha_seguimiento);
     const clases = opciones.clases || "";
     const comentarioModal = String(c.comentarios || "")
         .replace(/\\/g, "\\\\")
         .replace(/`/g, "\\`")
         .replace(/\$/g, "\\$");
+    const fechaSeguimientoResumen = fechaSeguimiento
+        ? `<p><b>Seguimiento:</b> ${fechaSeguimiento}</p>`
+        : "";
 
     return `
         <div class="card ${clases}" id="${cardId}">
@@ -220,7 +260,7 @@ function renderTarjetaCotizacion(c, opciones = {}) {
 
                 <div class="pdf-contenido">
                     <div class="pdf-titulo">
-                        <p class="pdf-eyebrow">COTIZACIÓN</p>
+                        <p class="pdf-eyebrow">COTIZACION</p>
                         <h1>${c.nombre || ""}</h1>
                         <p class="pdf-subtitulo">
                             DNI ${c.dni} &nbsp;|&nbsp; Tel. ${c.celular || "-"}
@@ -231,7 +271,7 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                         <thead>
                             <tr>
                                 <th>Detalle</th>
-                                <th>Información</th>
+                                <th>Informacion</th>
                                 <th>Importe</th>
                             </tr>
                         </thead>
@@ -257,12 +297,12 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                                 <td>$ ${Number(c.valor || 0).toLocaleString("es-AR")}</td>
                             </tr>
                             <tr>
-                                <td>Bonificación comercial</td>
+                                <td>Bonificacion comercial</td>
                                 <td></td>
                                 <td>- $ ${Number(c.bonificacion || 0).toLocaleString("es-AR")}</td>
                             </tr>
                             <tr>
-                                <td>Bonificación por aportes</td>
+                                <td>Bonificacion por aportes</td>
                                 <td></td>
                                 <td>- $ ${Number(c.bonificacion_aportes || 0).toLocaleString("es-AR")}</td>
                             </tr>
@@ -293,25 +333,27 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                     </div>
 
                     <p class="pdf-aclaracion">
-                        La presente cotización queda sujeta a variaciones conforme a
+                        La presente cotizacion queda sujeta a variaciones conforme a
                         actualizaciones, aumentos o ajustes autorizados por Asismed, o a
                         modificaciones de los datos personales informados. Los cambios
-                        correspondientes serán aplicados en el mes que se indique.
+                        correspondientes seran aplicados en el mes que se indique.
                     </p>
 
-                    <p class="pdf-identificador">Cotización N.° ${c.id}</p>
+                    <p class="pdf-identificador">Cotizacion N. ${c.id}</p>
                 </div>
             </div>
 
             <div class="cotizacion-resumen no-pdf">
                 <div class="cotizacion-resumen-datos">
                     <p class="fecha-card">
-                        🕒 ${formatearFecha(c.fecha)}
+                        ${formatearFecha(c.fecha)}
                     </p>
                     <div class="cotizacion-resumen-grid">
                         <p><b>DNI:</b> ${c.dni}</p>
-                        <p><b>Teléfono:</b> ${c.celular || "-"}</p>
+                        <p><b>Telefono:</b> ${c.celular || "-"}</p>
                         <p><b>Asesora:</b> ${c.vendedora}</p>
+                        <p><b>Estado:</b> ${estadoActual}</p>
+                        ${fechaSeguimientoResumen}
                     </div>
                 </div>
 
@@ -337,23 +379,48 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                     <p><b>Plan:</b> ${c.plan || "-"}</p>
                     <p><b>Cobertura:</b> ${c.tipo_cobertura || "Individual"}</p>
                     <p><b>Valor:</b> $${c.valor || 0}</p>
-                    <p><b>Bonificación comercial:</b> $${c.bonificacion || 0}</p>
-                    <p><b>Bonificación por aportes:</b> $${c.bonificacion_aportes || 0}</p>
+                    <p><b>Bonificacion comercial:</b> $${c.bonificacion || 0}</p>
+                    <p><b>Bonificacion por aportes:</b> $${c.bonificacion_aportes || 0}</p>
                     <p><b>Modalidad:</b> ${c.modalidad || "PARTICULAR"}</p>
-                    <p><b>Válida hasta:</b> ${c.vigencia || "-"}</p>
+                    <p><b>Valida hasta:</b> ${c.vigencia || "-"}</p>
                     <p><b>Referido:</b> ${c.referido || "No"}</p>
                     <p><b>Congelamiento:</b> ${c.congelamiento || "Sin congelamiento"}</p>
                 </div>
 
+                <div class="seguimiento-controles">
+                    <label>
+                        Estado
+                        <select id="${estadoId}">
+                            ${opcionesEstadoCotizacion(estadoActual)}
+                        </select>
+                    </label>
+
+                    <label>
+                        Fecha de seguimiento
+                        <input
+                            type="date"
+                            id="${seguimientoId}"
+                            value="${fechaSeguimiento}"
+                        >
+                    </label>
+
+                    <button
+                        type="button"
+                        onclick="guardarSeguimientoCotizacion(${c.id}, '${estadoId}', '${seguimientoId}')"
+                    >
+                        Guardar seguimiento
+                    </button>
+                </div>
+
                 <div class="cotizacion-comentario">
                     <p>
-                        <b>💬 Comentario:</b>
+                        <b>Comentario:</b>
                         ${c.comentarios || "Sin comentarios"}
                     </p>
                 </div>
 
                 <div class="comentarios-internos">
-                    <h4>🗨️ Comentarios internos</h4>
+                    <h4>Comentarios internos</h4>
 
                     <div id="${comentariosId}"></div>
 
@@ -368,7 +435,7 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                 </div>
 
                 <div class="archivos-box">
-                    <h4>📎 Adjuntos</h4>
+                    <h4>Adjuntos</h4>
 
                     <input
                         type="file"
@@ -405,12 +472,11 @@ function renderTarjetaCotizacion(c, opciones = {}) {
         </div>
     `;
 }
-
 async function buscar() {
     const termino = document.getElementById("dni").value.trim();
 
     if (!termino) {
-        alert("Ingresá un DNI o teléfono");
+        alert("IngresÃƒÂ¡ un DNI o telÃƒÂ©fono");
         return;
     }
     mostrarLoader();
@@ -462,7 +528,7 @@ async function subirArchivo(event, cotizacionId, contenedorId = `archivos-${coti
 
     if (!tipoCompatible || !extensionesPermitidas.test(file.name)) {
         mostrarToast(
-            "Seleccioná una imagen JPG, PNG, WEBP o HEIC",
+            "SeleccionÃƒÂ¡ una imagen JPG, PNG, WEBP o HEIC",
             "error"
         );
         input.value = "";
@@ -524,7 +590,7 @@ async function cargarArchivos(cotizacionId, contenedorId = `archivos-${cotizacio
     div.innerHTML = "";
 
     if (archivos.length === 0) {
-        div.innerHTML = '<p class="sin-adjuntos">Sin imágenes adjuntas.</p>';
+        div.innerHTML = '<p class="sin-adjuntos">Sin imÃƒÂ¡genes adjuntas.</p>';
         return;
     }
 
@@ -562,7 +628,7 @@ async function cargarArchivos(cotizacionId, contenedorId = `archivos-${cotizacio
 }
 
 async function eliminarArchivo(archivoId, cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
-    if (!confirm("¿Querés eliminar esta imagen adjunta?")) return;
+    if (!confirm("Ã‚Â¿QuerÃƒÂ©s eliminar esta imagen adjunta?")) return;
 
     const res = await fetch(`/archivos/${archivoId}`, {
         method: "DELETE",
@@ -652,7 +718,7 @@ async function descargarPDF(id) {
     const card = document.getElementById(`card-${id}`);
 
     if (!card) {
-        mostrarToast("No se encontró la cotización", "error");
+        mostrarToast("No se encontrÃƒÂ³ la cotizaciÃƒÂ³n", "error");
         return;
     }
 
@@ -722,7 +788,7 @@ async function descargarPDF(id) {
 
 }
 // =======================
-// ➕ AGREGAR
+// Ã¢Å¾â€¢ AGREGAR
 // =======================
 
 async function agregar() {
@@ -748,7 +814,7 @@ async function agregar() {
 
         referido:
             document.getElementById("referido").checked
-                ? "Sí"
+                ? "SÃƒÂ­"
                 : "No",
 
         congelamiento:
@@ -803,7 +869,7 @@ async function agregar() {
 }
 
 // =======================
-// 💬 COMENTARIOS
+// Ã°Å¸â€™Â¬ COMENTARIOS
 // =======================
 
 let comentarioId = null;
@@ -839,7 +905,7 @@ async function guardarComentario() {
 }
 
 // =======================
-// ✏️ EDITAR USUARIO
+// Ã¢Å“ÂÃ¯Â¸Â EDITAR USUARIO
 // =======================
 
 let usuarioEditando = null;
@@ -880,7 +946,7 @@ async function guardarEdicion() {
 }
 
 // =======================
-// ➕ CREAR USUARIO
+// Ã¢Å¾â€¢ CREAR USUARIO
 // =======================
 
 async function crearUsuario() {
@@ -912,7 +978,7 @@ async function crearUsuario() {
 }
 
 // =======================
-// 🔐 INIT
+// Ã°Å¸â€Â INIT
 // =======================
 
 window.onload = function () {
@@ -929,13 +995,11 @@ window.onload = function () {
     const user = document.getElementById("usuarioLogueado");
     if (user) {
         user.innerHTML = `
-    <img class="icono-menu" src="img/imgicon-usuario.png" alt="">
-    <span>${payload.usuario}</span>
-    <span aria-hidden="true">⌄</span>
-`;
+            <img class="icono-menu" src="img/imgicon-usuario.png" alt="">
+            <span>${payload.usuario}</span>
+        `;
     }
-
-    // si NO es admin oculta botón usuarios
+    // si NO es admin oculta botÃƒÂ³n usuarios
     if (!esAdmin()) {
         const btnUsuarios = document.querySelector("button[onclick*='usuarios']");
         if (btnUsuarios) btnUsuarios.style.display = "none";
@@ -947,7 +1011,7 @@ window.onload = function () {
 };
 
 // =======================
-// 🚪 LOGOUT
+// Ã°Å¸Å¡Âª LOGOUT
 // =======================
 
 function logout() {
@@ -956,7 +1020,7 @@ function logout() {
 }
 
 // =======================
-// 🔔 TOAST
+// Ã°Å¸â€â€ TOAST
 // =======================
 
 function mostrarToast(mensaje, tipo = "success") {
@@ -979,7 +1043,7 @@ function mostrarSeccion(seccion) {
 
     document.getElementById(seccion).style.display = "block";
 
-    // si es usuarios → cargar lista
+    // si es usuarios Ã¢â€ â€™ cargar lista
     if (seccion === "usuarios") {
         cargarUsuarios();
     }
@@ -1030,7 +1094,7 @@ async function cambiarPassword() {
     if (res.ok) {
 
         mostrarToast(
-            "Contraseña actualizada",
+            "ContraseÃƒÂ±a actualizada",
             "success"
         );
 
@@ -1053,18 +1117,147 @@ function togglePassword(id, el) {
     if (input.type === "password") {
 
         input.type = "text";
-        el.textContent = "👁️";
+        el.textContent = "Ã°Å¸â€˜ÂÃ¯Â¸Â";
 
     } else {
 
         input.type = "password";
-        el.textContent = "🙈";
+        el.textContent = "Ã°Å¸â„¢Ë†";
+    }
+}
+
+function completarSelectEstados() {
+    const select = document.getElementById("filtroEstado");
+
+    if (!select || select.dataset.cargado === "true") return;
+
+    select.innerHTML = `
+        <option value="">Todos los estados</option>
+        ${ESTADOS_COTIZACION.map(estado => `
+            <option value="${estado}">${estado}</option>
+        `).join("")}
+    `;
+
+    select.dataset.cargado = "true";
+}
+
+function completarSelectAsesoras(cotizaciones) {
+    const select = document.getElementById("filtroAsesora");
+
+    if (!select) return;
+
+    const seleccionActual = select.value;
+    const asesoras = [...new Set(
+        cotizaciones.map(c => c.vendedora).filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b, "es"));
+
+    select.innerHTML = `
+        <option value="">Todas las asesoras</option>
+        ${asesoras.map(asesora => `
+            <option value="${asesora}" ${asesora === seleccionActual ? "selected" : ""}>
+                ${asesora}
+            </option>
+        `).join("")}
+    `;
+}
+
+function filtrosCotizacionesQuery() {
+    const params = new URLSearchParams();
+    const estado = document.getElementById("filtroEstado")?.value;
+    const asesora = document.getElementById("filtroAsesora")?.value;
+    const fechaDesde = document.getElementById("filtroFechaDesde")?.value;
+    const fechaHasta = document.getElementById("filtroFechaHasta")?.value;
+
+    if (estado) params.set("estado", estado);
+    if (asesora) params.set("asesora", asesora);
+    if (fechaDesde) params.set("fecha_desde", fechaDesde);
+    if (fechaHasta) params.set("fecha_hasta", fechaHasta);
+
+    const query = params.toString();
+
+    return query ? `?${query}` : "";
+}
+
+function limpiarFiltrosCotizaciones() {
+    ["filtroEstado", "filtroAsesora", "filtroFechaDesde", "filtroFechaHasta"]
+        .forEach(id => {
+            const input = document.getElementById(id);
+            if (input) input.value = "";
+        });
+
+    cargarMisCotizaciones();
+}
+
+function renderSeguimientosHoy(cotizaciones) {
+    const div = document.getElementById("seguimientosHoy");
+
+    if (!div) return;
+
+    const hoy = fechaActualInput();
+    const seguimientos = cotizaciones.filter(c =>
+        fechaSeguimientoInput(c.fecha_seguimiento) === hoy
+    );
+
+    if (seguimientos.length === 0) {
+        div.innerHTML = "";
+        return;
+    }
+
+    div.innerHTML = `
+        <h3>Seguimientos de hoy</h3>
+        ${seguimientos.map(c => `
+            <div class="seguimiento-item">
+                <span>
+                    <b>${c.nombre || "Sin nombre"}</b>
+                    | DNI ${c.dni}
+                    | ${c.celular || "Sin telefono"}
+                    | ${estadoCotizacion(c)}
+                </span>
+                <span>${c.vendedora || "-"}</span>
+            </div>
+        `).join("")}
+    `;
+}
+
+async function guardarSeguimientoCotizacion(id, estadoId, seguimientoId) {
+    const estado = document.getElementById(estadoId)?.value || "Nuevo";
+    const fechaSeguimiento =
+        document.getElementById(seguimientoId)?.value || null;
+
+    const res = await fetch(`/cotizaciones/${id}/seguimiento`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({
+            estado,
+            fecha_seguimiento: fechaSeguimiento
+        })
+    });
+
+    if (await manejarError(res)) return;
+
+    if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        mostrarToast(error.error || "No se pudo guardar el seguimiento", "error");
+        return;
+    }
+
+    mostrarToast("Seguimiento actualizado", "success");
+
+    if (document.getElementById("misCotizaciones")?.style.display !== "none") {
+        cargarMisCotizaciones();
+        return;
+    }
+
+    if (document.getElementById("dni")?.value.trim()) {
+        buscar();
     }
 }
 
 async function cargarMisCotizaciones() {
 
-    const res = await fetch("/mis-cotizaciones", {
+    completarSelectEstados();
+
+    const res = await fetch(`/mis-cotizaciones${filtrosCotizacionesQuery()}`, {
         headers: authHeaders()
     });
 
@@ -1077,6 +1270,9 @@ async function cargarMisCotizaciones() {
 
     div.innerHTML = "";
 
+    completarSelectAsesoras(data);
+    renderSeguimientosHoy(data);
+
     if (data.length === 0) {
 
         div.innerHTML =
@@ -1086,7 +1282,7 @@ async function cargarMisCotizaciones() {
     }
 
     // =========================
-    // 👑 ADMIN
+    // Ã°Å¸â€˜â€˜ ADMIN
     // =========================
 
     if (esAdmin()) {
@@ -1313,7 +1509,7 @@ function calcularIMC() {
     if (!peso || !alturaCm) {
 
         mostrarToast(
-            "Completá peso y altura",
+            "CompletÃƒÂ¡ peso y altura",
             "error"
         );
 
@@ -1350,9 +1546,9 @@ function calcularIMC() {
 
         observaciones = `
             <ul>
-                <li>⚠️ Se recomienda duplicar la cuota</li>
-                <li>❌ Exclusión de cirugía bariátrica</li>
-                <li>🧪 Requiere laboratorio de pre ingreso</li>
+                <li>Ã¢Å¡Â Ã¯Â¸Â Se recomienda duplicar la cuota</li>
+                <li>Ã¢ÂÅ’ ExclusiÃƒÂ³n de cirugÃƒÂ­a bariÃƒÂ¡trica</li>
+                <li>Ã°Å¸Â§Âª Requiere laboratorio de pre ingreso</li>
             </ul>
         `;
 
@@ -1362,10 +1558,10 @@ function calcularIMC() {
 
         observaciones = `
             <ul>
-                <li>⚠️ Consultar aumento de cuota</li>
-                <li>❌ Exclusión de cirugía bariátrica</li>
-                <li>🧪 Requiere laboratorio</li>
-                <li>❤️ Requiere ecodoppler</li>
+                <li>Ã¢Å¡Â Ã¯Â¸Â Consultar aumento de cuota</li>
+                <li>Ã¢ÂÅ’ ExclusiÃƒÂ³n de cirugÃƒÂ­a bariÃƒÂ¡trica</li>
+                <li>Ã°Å¸Â§Âª Requiere laboratorio</li>
+                <li>Ã¢ÂÂ¤Ã¯Â¸Â Requiere ecodoppler</li>
             </ul>
         `;
 
@@ -1375,7 +1571,7 @@ function calcularIMC() {
 
         observaciones = `
             <ul>
-                <li>🚫 Corresponde únicamente plan ambulatorio</li>
+                <li>Ã°Å¸Å¡Â« Corresponde ÃƒÂºnicamente plan ambulatorio</li>
             </ul>
         `;
     }
@@ -1387,7 +1583,7 @@ function calcularIMC() {
         <div class="card">
 
             <h3>
-                ⚖️ IMC: ${imc.toFixed(1)}
+                Ã¢Å¡â€“Ã¯Â¸Â IMC: ${imc.toFixed(1)}
             </h3>
 
             <p>
@@ -1420,7 +1616,7 @@ function calcularIMCPediatrico() {
     if (!edad || !peso || !alturaCm) {
 
         mostrarToast(
-            "Completá todos los campos",
+            "CompletÃƒÂ¡ todos los campos",
             "error"
         );
 
@@ -1430,7 +1626,7 @@ function calcularIMCPediatrico() {
     if (edad < 2) {
 
         mostrarToast(
-            "La calculadora es para mayores de 2 años",
+            "La calculadora es para mayores de 2 aÃƒÂ±os",
             "error"
         );
 
@@ -1469,7 +1665,7 @@ function calcularIMCPediatrico() {
 
         estado = "Obesidad";
         mensaje =
-            "El valor es elevado y requiere evaluación profesional.";
+            "El valor es elevado y requiere evaluaciÃƒÂ³n profesional.";
     }
 
     document.getElementById("imcNumeroPediatrico")
@@ -1480,7 +1676,7 @@ function calcularIMCPediatrico() {
 
     document.getElementById("imcTextoPediatrico")
         .textContent =
-        `${mensaje} La evaluación definitiva depende de percentiles pediátricos.`;
+        `${mensaje} La evaluaciÃƒÂ³n definitiva depende de percentiles pediÃƒÂ¡tricos.`;
 }
 
 // =======================
@@ -1504,7 +1700,7 @@ function syncPesoInput(valor) {
 }
 
 // =======================
-// SYNC IMC PEDIÁTRICO
+// SYNC IMC PEDIÃƒÂTRICO
 // =======================
 
 function syncEdad(valor) {
@@ -1572,7 +1768,7 @@ function calcularIMCAutomatico() {
 
         estado = "IMC 33-35";
         texto =
-            "Se recomienda duplicar la cuota - Exclusión de cirugía bariátrica - Requiere laboratorio de pre ingreso";
+            "Se recomienda duplicar la cuota - ExclusiÃƒÂ³n de cirugÃƒÂ­a bariÃƒÂ¡trica - Requiere laboratorio de pre ingreso";
 
         color = "#e53935";
 
@@ -1580,7 +1776,7 @@ function calcularIMCAutomatico() {
 
         estado = "IMC 35-38";
         texto =
-            "Aumento de cuota - Exclusión de cirugía bariátrica - Requiere laboratorio y ecodoppler de pre ingreso ";
+            "Aumento de cuota - ExclusiÃƒÂ³n de cirugÃƒÂ­a bariÃƒÂ¡trica - Requiere laboratorio y ecodoppler de pre ingreso ";
 
         color = "#c62828";
 

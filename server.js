@@ -84,6 +84,33 @@ const upload = multer({
     }
 });
 
+const ESTADOS_COTIZACION = [
+    "Nuevo",
+    "Contactado",
+    "Pendiente de pago",
+    "No responde",
+    "Abonó",
+    "Perdido"
+];
+
+const SELECT_COTIZACIONES = `
+    SELECT
+        *,
+        COALESCE(NULLIF(estado, ''), 'Nuevo') AS estado
+    FROM cotizaciones
+`;
+
+function normalizarCotizacion(cotizacion) {
+    return {
+        ...cotizacion,
+        estado: cotizacion.estado || "Nuevo"
+    };
+}
+
+function normalizarCotizaciones(cotizaciones) {
+    return cotizaciones.map(normalizarCotizacion);
+}
+
 // 🔐 MIDDLEWARE TOKEN
 function verificarToken(req, res, next) {
     const authHeader = req.headers["authorization"];
@@ -195,6 +222,22 @@ ADD COLUMN bonificacion TEXT
     db.run(`
 ALTER TABLE cotizaciones
 ADD COLUMN bonificacion_aportes TEXT
+`, () => { });
+
+    db.run(`
+ALTER TABLE cotizaciones
+ADD COLUMN estado TEXT DEFAULT 'Nuevo'
+`, () => { });
+
+    db.run(`
+ALTER TABLE cotizaciones
+ADD COLUMN fecha_seguimiento TEXT
+`, () => { });
+
+    db.run(`
+UPDATE cotizaciones
+SET estado = 'Nuevo'
+WHERE estado IS NULL OR estado = ''
 `, () => { });
 
 });
@@ -325,8 +368,7 @@ function buscarCotizacionesPorTelefono(termino, callback) {
 
     db.all(
         `
-        SELECT *
-        FROM cotizaciones
+        ${SELECT_COTIZACIONES}
         WHERE celular IS NOT NULL
           AND celular != ''
           AND (${condiciones})
@@ -341,8 +383,10 @@ function buscarCotizacionesPorTelefono(termino, callback) {
 
             callback(
                 null,
-                cotizaciones.filter(cotizacion =>
-                    coincideTelefono(cotizacion.celular, termino)
+                normalizarCotizaciones(
+                    cotizaciones.filter(cotizacion =>
+                        coincideTelefono(cotizacion.celular, termino)
+                    )
                 )
             );
         }
@@ -363,14 +407,14 @@ app.get("/buscar/:termino", verificarToken, (req, res) => {
     const termino = String(req.params.termino || "").trim();
 
     db.all(
-        "SELECT * FROM cotizaciones WHERE dni = ? ORDER BY fecha ASC",
+        `${SELECT_COTIZACIONES} WHERE dni = ? ORDER BY fecha ASC`,
         [termino],
         (err, cotizacionesPorDni) => {
             if (err) return res.status(500).json(err);
 
             // La coincidencia exacta de DNI conserva la búsqueda original.
             if (cotizacionesPorDni.length > 0) {
-                return res.json(cotizacionesPorDni);
+                return res.json(normalizarCotizaciones(cotizacionesPorDni));
             }
 
             buscarCotizacionesPorTelefono(
@@ -866,51 +910,120 @@ app.put("/cambiar-password", verificarToken, async (req, res) => {
 });
 
 
-app.get("/mis-cotizaciones", verificarToken, (req, res) => {
+app.put("/cotizaciones/:id/seguimiento", verificarToken, (req, res) => {
+    const id = req.params.id;
+    const estado = req.body.estado || "Nuevo";
+    const fechaSeguimiento = req.body.fecha_seguimiento || null;
 
-    // 👑 ADMIN VE TODO
+    if (!ESTADOS_COTIZACION.includes(estado)) {
+        return res.status(400).json({ error: "Estado inválido" });
+    }
+
+    if (
+        fechaSeguimiento &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(fechaSeguimiento)
+    ) {
+        return res.status(400).json({ error: "Fecha de seguimiento inválida" });
+    }
+
+    db.get(
+        "SELECT vendedora FROM cotizaciones WHERE id = ?",
+        [id],
+        (err, cotizacion) => {
+            if (err) return res.status(500).json(err);
+
+            if (!cotizacion) {
+                return res.status(404).json({ error: "Cotización no encontrada" });
+            }
+
+            if (
+                req.user.rol !== "admin" &&
+                cotizacion.vendedora !== req.user.usuario
+            ) {
+                return res.status(403).json({ error: "No autorizado" });
+            }
+
+            db.run(
+                `
+                UPDATE cotizaciones
+                SET estado = ?, fecha_seguimiento = ?
+                WHERE id = ?
+                `,
+                [estado, fechaSeguimiento, id],
+                function (errorUpdate) {
+                    if (errorUpdate) return res.status(500).json(errorUpdate);
+
+                    res.json({ success: true });
+                }
+            );
+        }
+    );
+});
+
+app.get("/mis-cotizaciones", verificarToken, (req, res) => {
+    const {
+        estado,
+        asesora,
+        fecha_desde,
+        fecha_hasta
+    } = req.query;
+
+    const condiciones = [];
+    const parametros = [];
+
+    if (estado) {
+        condiciones.push("COALESCE(NULLIF(estado, ''), 'Nuevo') = ?");
+        parametros.push(estado);
+    }
+
+    if (fecha_desde) {
+        condiciones.push("date(fecha) >= date(?)");
+        parametros.push(fecha_desde);
+    }
+
+    if (fecha_hasta) {
+        condiciones.push("date(fecha) <= date(?)");
+        parametros.push(fecha_hasta);
+    }
+
     if (req.user.rol === "admin") {
+        if (asesora) {
+            condiciones.push("vendedora = ?");
+            parametros.push(asesora);
+        }
 
         db.all(
             `
-            SELECT *
-            FROM cotizaciones
+            ${SELECT_COTIZACIONES}
+            ${condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : ""}
             ORDER BY fecha DESC
             `,
-            [],
+            parametros,
             (err, rows) => {
+                if (err) return res.status(500).json(err);
 
-                if (err) {
-                    return res.status(500).json(err);
-                }
-
-                res.json(rows);
+                res.json(normalizarCotizaciones(rows));
             }
         );
 
         return;
     }
 
-    // 👤 VENDEDORA VE SOLO LAS SUYAS
     db.all(
         `
-        SELECT *
-        FROM cotizaciones
+        ${SELECT_COTIZACIONES}
         WHERE vendedora = ?
+        ${condiciones.length ? `AND ${condiciones.join(" AND ")}` : ""}
         ORDER BY fecha DESC
         `,
-        [req.user.usuario],
+        [req.user.usuario, ...parametros],
         (err, rows) => {
+            if (err) return res.status(500).json(err);
 
-            if (err) {
-                return res.status(500).json(err);
-            }
-
-            res.json(rows);
+            res.json(normalizarCotizaciones(rows));
         }
     );
 });
-
 
 const PORT = process.env.PORT || 3000;
 
