@@ -104,107 +104,157 @@
             <!-- SECCIÓN COTIZADOR -->
             <section id="cotizador" class="seccion">
 
-                <div class="container">
-                    <h2>Buscar cliente</h2>
-                    <input type="text" id="dni" placeholder="Buscar por DNI o teléfono">
-                    <button onclick="buscar()">Buscar</button>
+                <div class="container cotizador-panel buscar-panel">
+                    <div class="form-section-header">
+                        <h2>Buscar cliente</h2>
+                    </div>
+
+                    <div class="buscar-cliente-grid">
+                        <label class="field">
+                            <span>DNI o teléfono</span>
+                            <input type="text" id="dni" placeholder="Buscar por DNI o teléfono">
+                        </label>
+
+                        <button onclick="buscar()">Buscar</button>
+                    </div>
 
                     <div id="resultados"></div>
                 </div>
 
-                <div class="container">
-                    <h3>Nueva cotización</h3>
-                    <input type="text" id="nombre" placeholder="Nombre">
-                    <input type="text" id="celular" placeholder="Celular">
-                    <select id="plan">
-
-                        <option value="">
-                            Seleccionar plan
-                        </option>
-
-                        <option value="Oro">
-                            Oro
-                        </option>
-
-                        <option value="Plata">
-                            Plata
-                        </option>
-
-                        <option value="Bronce">
-                            Bronce
-                        </option>
-
-                        <option value="Acero">
-                            Acero
-                        </option>
-
-                        <option value="Cromo">
-                            Cromo
-                        </option>
-
-                        <option value="Plan Plus">
-                            Plus
-                        </option>
-
-                    </select>
-                    <label>Cobertura</label>
-                    <select id="tipoCobertura">
-
-                        <option value="Individual">Individual</option>
-                        <option value="Grupo Familiar">Grupo Familiar</option>
-                    </select>
-                    <select id="modalidad">
-                        <option value="PARTICULAR">Particular</option>
-                        <option value="RD OSTV">RD OSTV</option>
-                    </select>
-                    <label>Subtotal</label>
-                    <input type="text" id="valor" placeholder="Valor">
-                    <label>Bonificación comercial</label>
-                    <input type="number" id="bonificacion" placeholder="0" />
-
-                    <label>Bonificación por aportes</label>
-                    <input type="number" id="bonificacionAportes" placeholder="0" />
-                    <label>
-                        Cotización válida hasta
-                    </label>
-
-                    <input type="date" id="vigencia">
-                    <div class="check-group">
-
-                        <input type="checkbox" id="referido">
-
-                        <label for="referido">
-                            Referido
-                        </label>
-
+                <div class="container cotizador-panel">
+                    <div class="form-section-header">
+                        <h3>Nueva cotización</h3>
                     </div>
-                    <label>
-                        Congelamiento de cuota
-                    </label>
 
-                    <select id="congelamiento">
+                    <div class="cotizador-form-grid">
+                        <div class="form-block">
+                            <h4>Datos del cliente</h4>
 
-                        <option value="">
-                            Sin congelamiento
-                        </option>
+                            <label class="field">
+                                <span>DNI</span>
+                                <input type="text" id="dniCotizacion" placeholder="DNI del cliente">
+                            </label>
 
-                        <option value="3 meses">
-                            3 meses
-                        </option>
+                            <label class="field">
+                                <span>Nombre</span>
+                                <input type="text" id="nombre" placeholder="Nombre completo">
+                            </label>
 
-                        <option value="6 meses">
-                            6 meses
-                        </option>
+                            <label class="field">
+                                <span>Celular</span>
+                                <input type="text" id="celular" placeholder="Teléfono de contacto">
+                            </label>
+                        </div>
 
-                    </select>
+                        <div class="form-block">
+                            <h4>Plan y cobertura</h4>
 
-                    <textarea id="comentarios" placeholder="Comentarios"></textarea>
+                            <label class="field">
+                                <span>Plan</span>
+                                <select id="plan">
+                                    <option value="">Seleccionar plan</option>
+                                    <option value="Oro">Oro</option>
+                                    <option value="Plata">Plata</option>
+                                    <option value="Bronce">Bronce</option>
+                                    <option value="Acero">Acero</option>
+                                    <option value="Cromo">Cromo</option>
+                                    <option value="Plan Plus">Plus</option>
+                                </select>
+                            </label>
 
-                    <button onclick="agregar()">Guardar</button>
+                            <label class="field">
+                                <span>Cobertura</span>
+                                <select id="tipoCobertura">
+                                    <option value="Individual">Individual</option>
+                                    <option value="Grupo Familiar">Grupo Familiar</option>
+                                </select>
+                            </label>
+
+                            <label class="field">
+                                <span>Modalidad</span>
+                                <select id="modalidad">
+                                    <option value="PARTICULAR">Particular</option>
+                                    <option value="RD OSTV">RD OSTV</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <div class="form-block">
+                            <h4>Valores y bonificaciones</h4>
+
+                            <label class="field">
+                                <span>Subtotal</span>
+                                <input type="text" id="valor" placeholder="Valor">
+                            </label>
+
+                            <label class="field">
+                                <span>Bonificación comercial</span>
+                                <input type="number" id="bonificacion" placeholder="0" />
+                            </label>
+
+                            <label class="field">
+                                <span>Bonificación por aportes</span>
+                                <input type="number" id="bonificacionAportes" placeholder="0" />
+                            </label>
+
+                            <div class="total-cotizacion-box">
+                                <span>Total estimado</span>
+                                <strong id="totalCotizacion">$ 0</strong>
+                            </div>
+                        </div>
+
+                        <div class="form-block">
+                            <h4>Seguimiento / comentarios / adjuntos</h4>
+
+                            <label class="field">
+                                <span>Cotización válida hasta</span>
+                                <input type="date" id="vigencia">
+                            </label>
+
+                            <label class="field">
+                                <span>Congelamiento de cuota</span>
+                                <select id="congelamiento">
+                                    <option value="">Sin congelamiento</option>
+                                    <option value="3 meses">3 meses</option>
+                                    <option value="6 meses">6 meses</option>
+                                </select>
+                            </label>
+
+                            <div class="check-group referido-check">
+                                <input type="checkbox" id="referido">
+                                <label for="referido">Referido</label>
+                            </div>
+
+                            <label class="field field-full">
+                                <span>Comentarios</span>
+                                <textarea id="comentarios" placeholder="Comentarios"></textarea>
+                            </label>
+
+                            <label class="field adjunto-nueva-cotizacion">
+                                <span>Adjuntar imágenes</span>
+                                <label class="adjunto-dropzone" for="adjuntoCotizacion">
+                                    <strong>Adjuntar imágenes</strong>
+                                    <small>Podés subir hasta 5 imágenes JPG, PNG o WEBP</small>
+                                </label>
+                                <input
+                                    type="file"
+                                    id="adjuntoCotizacion"
+                                    name="imagenes"
+                                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                                    multiple
+                                    onchange="previsualizarAdjuntosCotizacion()"
+                                >
+                                <div id="previewAdjuntosCotizacion" class="adjuntos-preview">
+                                    <small>Sin archivos seleccionados</small>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <button class="primary-action" onclick="agregar()">Guardar</button>
                 </div>
 
             </section>
-
             <!-- SECCIÓN USUARIOS -->
             <section id="usuarios" class="seccion" style="display:none;">
 
@@ -533,6 +583,30 @@
             <button class="secondary-btn" onclick="cerrarModalEditar()">
                 Cancelar
             </button>
+        </div>
+
+    </div>
+
+    <!-- MODAL ELIMINAR ADJUNTO -->
+    <div id="modalEliminarAdjunto" class="modal modal-confirmacion">
+
+        <div class="modal-content">
+            <h3 id="modalConfirmacionTitulo">¿Eliminar imagen adjunta?</h3>
+            <p id="modalConfirmacionTexto">Esta acción no se puede deshacer.</p>
+
+            <div class="modal-actions">
+                <button class="secondary-btn" onclick="cancelarModalConfirmacion()">
+                    Cancelar
+                </button>
+
+                <button
+                    id="modalConfirmacionAccion"
+                    class="danger-btn"
+                    onclick="confirmarModalConfirmacion()"
+                >
+                    Eliminar
+                </button>
+            </div>
         </div>
 
     </div>

@@ -15,19 +15,14 @@ const extensionesImagen = new Set([
     ".jpg",
     ".jpeg",
     ".png",
-    ".webp",
-    ".heic",
-    ".heif"
+    ".webp"
 ]);
 const tiposImagen = new Set([
     "image/jpeg",
     "image/pjpeg",
     "image/png",
-    "image/webp",
-    "image/heic",
-    "image/heif"
+    "image/webp"
 ]);
-
 fs.mkdirSync(uploadsDir, { recursive: true });
 
 // 👉 MIDDLEWARES
@@ -60,20 +55,13 @@ const upload = multer({
     },
     fileFilter: (req, file, cb) => {
         const extension = path.extname(file.originalname).toLowerCase();
-        const esHeic = extension === ".heic" || extension === ".heif";
         const esImagen =
             extensionesImagen.has(extension) &&
-            (
-                tiposImagen.has(file.mimetype) ||
-                (esHeic && (
-                    !file.mimetype ||
-                    file.mimetype === "application/octet-stream"
-                ))
-            );
+            tiposImagen.has(file.mimetype);
 
         if (!esImagen) {
             const error = new Error(
-                "Solo se permiten imágenes JPG, JPEG, PNG, WEBP, HEIC o HEIF"
+                "Solo se permiten imágenes JPG, JPEG, PNG o WEBP"
             );
             error.code = "TIPO_ARCHIVO_INVALIDO";
             cb(error);
@@ -89,26 +77,106 @@ const ESTADOS_COTIZACION = [
     "Contactado",
     "Pendiente de pago",
     "No responde",
-    "Abonó",
+    "Afiliado",
     "Perdido"
 ];
+
+const ESTADOS_AFILIADO_LEGACY = [
+    String.fromCharCode(0x41, 0x62, 0x6f, 0x6e, 0xf3),
+    String.fromCharCode(0x41, 0x62, 0x6f, 0x6e, 0xc3, 0xb3),
+    String.fromCharCode(0x41, 0x62, 0x6f, 0x6e, 0xc3, 0x83, 0xc2, 0xb3),
+    String.fromCharCode(
+        0x41,
+        0x62,
+        0x6f,
+        0x6e,
+        0xc3,
+        0x83,
+        0xc6,
+        0x92,
+        0xc3,
+        0x82,
+        0xc2,
+        0xb3
+    )
+];
+
+const ESTADOS_AFILIADO_LEGACY_SQL = ESTADOS_AFILIADO_LEGACY
+    .map(estado => `'${estado.replace(/'/g, "''")}'`)
+    .join(", ");
+
+const ESTADO_COTIZACION_SQL = `
+    CASE
+        WHEN estado IN (${ESTADOS_AFILIADO_LEGACY_SQL}) THEN 'Afiliado'
+        ELSE COALESCE(NULLIF(estado, ''), 'Nuevo')
+    END
+`;
 
 const SELECT_COTIZACIONES = `
     SELECT
         *,
-        COALESCE(NULLIF(estado, ''), 'Nuevo') AS estado
+        ${ESTADO_COTIZACION_SQL} AS estado
     FROM cotizaciones
 `;
+
+function normalizarEstadoCotizacion(estado) {
+    const valor = String(estado || "").trim();
+
+    if (!valor) return "Nuevo";
+
+    return ESTADOS_AFILIADO_LEGACY.includes(valor)
+        ? "Afiliado"
+        : valor;
+}
 
 function normalizarCotizacion(cotizacion) {
     return {
         ...cotizacion,
-        estado: cotizacion.estado || "Nuevo"
+        estado: normalizarEstadoCotizacion(cotizacion.estado)
     };
 }
 
 function normalizarCotizaciones(cotizaciones) {
     return cotizaciones.map(normalizarCotizacion);
+}
+
+function responderCotizacionesConArchivos(res, cotizaciones) {
+    const normalizadas = normalizarCotizaciones(cotizaciones);
+    const ids = normalizadas.map(cotizacion => cotizacion.id);
+
+    if (ids.length === 0) {
+        res.json(normalizadas);
+        return;
+    }
+
+    db.all(
+        `
+        SELECT *
+        FROM archivos
+        WHERE cotizacion_id IN (${ids.map(() => "?").join(", ")})
+        ORDER BY fecha DESC
+        `,
+        ids,
+        (err, archivos) => {
+            if (err) return res.status(500).json(err);
+
+            const archivosPorCotizacion = archivos.reduce((grupo, archivo) => {
+                if (!grupo[archivo.cotizacion_id]) {
+                    grupo[archivo.cotizacion_id] = [];
+                }
+
+                grupo[archivo.cotizacion_id].push(archivo);
+                return grupo;
+            }, {});
+
+            res.json(
+                normalizadas.map(cotizacion => ({
+                    ...cotizacion,
+                    archivos: archivosPorCotizacion[cotizacion.id] || []
+                }))
+            );
+        }
+    );
 }
 
 // 🔐 MIDDLEWARE TOKEN
@@ -239,6 +307,12 @@ UPDATE cotizaciones
 SET estado = 'Nuevo'
 WHERE estado IS NULL OR estado = ''
 `, () => { });
+
+    db.run(`
+UPDATE cotizaciones
+SET estado = 'Afiliado'
+WHERE estado IN (${ESTADOS_AFILIADO_LEGACY.map(() => "?").join(", ")})
+`, ESTADOS_AFILIADO_LEGACY, () => { });
 
 });
 
@@ -414,7 +488,10 @@ app.get("/buscar/:termino", verificarToken, (req, res) => {
 
             // La coincidencia exacta de DNI conserva la búsqueda original.
             if (cotizacionesPorDni.length > 0) {
-                return res.json(normalizarCotizaciones(cotizacionesPorDni));
+                return responderCotizacionesConArchivos(
+                    res,
+                    cotizacionesPorDni
+                );
             }
 
             buscarCotizacionesPorTelefono(
@@ -424,7 +501,7 @@ app.get("/buscar/:termino", verificarToken, (req, res) => {
                         return res.status(500).json(errorTelefono);
                     }
 
-                    res.json(cotizaciones);
+                    responderCotizacionesConArchivos(res, cotizaciones);
                 }
             );
         }
@@ -432,7 +509,84 @@ app.get("/buscar/:termino", verificarToken, (req, res) => {
 });
 
 // 👉 AGREGAR
-app.post("/agregar", verificarToken, (req, res) => {
+function eliminarArchivosLocales(archivos = []) {
+    archivos.forEach(archivo => {
+        if (archivo?.path) {
+            fs.unlink(archivo.path, () => { });
+        }
+    });
+}
+
+function manejarErrorMulter(err, res) {
+    if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+            return res.status(400).json({
+                error: "La imagen supera el máximo permitido de 5 MB"
+            });
+        }
+
+        if (err.code === "LIMIT_UNEXPECTED_FILE") {
+            return res.status(400).json({
+                error: "Podés adjuntar hasta 5 imágenes por cotización"
+            });
+        }
+    }
+
+    if (err?.code === "TIPO_ARCHIVO_INVALIDO") {
+        return res.status(400).json({ error: err.message });
+    }
+
+    console.error("Error al procesar imagen:", err);
+    return res.status(500).json({
+        error: "No se pudo procesar la imagen"
+    });
+}
+
+function insertarArchivosCotizacion(cotizacionId, archivos, indice, callback) {
+    if (indice >= archivos.length) {
+        callback(null);
+        return;
+    }
+
+    const archivo = archivos[indice];
+
+    db.run(
+        `INSERT INTO archivos (cotizacion_id, nombre, archivo)
+         VALUES (?, ?, ?)`,
+        [
+            cotizacionId,
+            archivo.originalname,
+            archivo.filename
+        ],
+        err => {
+            if (err) {
+                callback(err);
+                return;
+            }
+
+            insertarArchivosCotizacion(
+                cotizacionId,
+                archivos,
+                indice + 1,
+                callback
+            );
+        }
+    );
+}
+
+const uploadImagenesNuevaCotizacion = (req, res, next) => {
+    upload.array("imagenes", 5)(req, res, err => {
+        if (err) {
+            eliminarArchivosLocales(req.files);
+            manejarErrorMulter(err, res);
+            return;
+        }
+
+        next();
+    });
+};
+
+app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, (req, res) => {
 
     const {
         dni,
@@ -458,57 +612,97 @@ app.post("/agregar", verificarToken, (req, res) => {
         });
     }
 
-    db.run(
-        `
-    INSERT INTO cotizaciones
-    (
-    dni,
-    nombre,
-    celular,
-    plan,
-    tipo_cobertura,
-    valor,
-    bonificacion,
-    bonificacion_aportes,
-    modalidad,
-    vendedora,
-    vigencia,
-    referido,
-    congelamiento,
-    comentarios
-)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-        [
-            dni,
-            nombre,
-            celular,
-            plan,
-            tipo_cobertura,
-            valor,
-            bonificacion,
-            bonificacion_aportes,
-            modalidad,
-            vendedora,
-            vigencia,
-            referido,
-            congelamiento,
-            comentarios
-        ],
-        function (err) {
+    const archivos = req.files || [];
 
-            if (err) {
-
-                console.log(err);
-
-                return res.status(500).json(err);
-            }
-
-            res.json({
-                success: true
-            });
+    db.run("BEGIN TRANSACTION", errBegin => {
+        if (errBegin) {
+            eliminarArchivosLocales(archivos);
+            return res.status(500).json(errBegin);
         }
-    );
+
+        db.run(
+            `
+        INSERT INTO cotizaciones
+        (
+        dni,
+        nombre,
+        celular,
+        plan,
+        tipo_cobertura,
+        valor,
+        bonificacion,
+        bonificacion_aportes,
+        modalidad,
+        vendedora,
+        vigencia,
+        referido,
+        congelamiento,
+        comentarios
+    )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+            [
+                dni,
+                nombre,
+                celular,
+                plan,
+                tipo_cobertura,
+                valor,
+                bonificacion,
+                bonificacion_aportes,
+                modalidad,
+                vendedora,
+                vigencia,
+                referido,
+                congelamiento,
+                comentarios
+            ],
+            function (errInsert) {
+
+                if (errInsert) {
+                    eliminarArchivosLocales(archivos);
+
+                    return db.run("ROLLBACK", () => {
+                        res.status(500).json(errInsert);
+                    });
+                }
+
+                const cotizacionId = this.lastID;
+
+                insertarArchivosCotizacion(
+                    cotizacionId,
+                    archivos,
+                    0,
+                    errArchivos => {
+                        if (errArchivos) {
+                            eliminarArchivosLocales(archivos);
+
+                            return db.run("ROLLBACK", () => {
+                                res.status(500).json({
+                                    error: "No se pudieron guardar los adjuntos"
+                                });
+                            });
+                        }
+
+                        db.run("COMMIT", errCommit => {
+                            if (errCommit) {
+                                eliminarArchivosLocales(archivos);
+
+                                return db.run("ROLLBACK", () => {
+                                    res.status(500).json(errCommit);
+                                });
+                            }
+
+                            res.json({
+                                success: true,
+                                id: cotizacionId
+                            });
+                        });
+                    }
+                );
+            }
+        );
+    });
 });
 
 app.post(
@@ -516,7 +710,16 @@ app.post(
     verificarToken,
     (req, res, next) => {
         db.get(
-            "SELECT id FROM cotizaciones WHERE id = ?",
+            `
+            SELECT
+                cotizaciones.id,
+                COUNT(archivos.id) AS total_archivos
+            FROM cotizaciones
+            LEFT JOIN archivos
+                ON archivos.cotizacion_id = cotizaciones.id
+            WHERE cotizaciones.id = ?
+            GROUP BY cotizaciones.id
+            `,
             [req.params.id],
             (err, cotizacion) => {
                 if (err) {
@@ -528,6 +731,12 @@ app.post(
                 if (!cotizacion) {
                     return res.status(404).json({
                         error: "Cotización no encontrada"
+                    });
+                }
+
+                if (Number(cotizacion.total_archivos || 0) >= 5) {
+                    return res.status(400).json({
+                        error: "La cotización ya tiene el máximo de 5 imágenes"
                     });
                 }
 
@@ -912,7 +1121,7 @@ app.put("/cambiar-password", verificarToken, async (req, res) => {
 
 app.put("/cotizaciones/:id/seguimiento", verificarToken, (req, res) => {
     const id = req.params.id;
-    const estado = req.body.estado || "Nuevo";
+    const estado = normalizarEstadoCotizacion(req.body.estado);
     const fechaSeguimiento = req.body.fecha_seguimiento || null;
 
     if (!ESTADOS_COTIZACION.includes(estado)) {
@@ -972,8 +1181,8 @@ app.get("/mis-cotizaciones", verificarToken, (req, res) => {
     const parametros = [];
 
     if (estado) {
-        condiciones.push("COALESCE(NULLIF(estado, ''), 'Nuevo') = ?");
-        parametros.push(estado);
+        condiciones.push(`${ESTADO_COTIZACION_SQL} = ?`);
+        parametros.push(normalizarEstadoCotizacion(estado));
     }
 
     if (fecha_desde) {
@@ -1002,7 +1211,7 @@ app.get("/mis-cotizaciones", verificarToken, (req, res) => {
             (err, rows) => {
                 if (err) return res.status(500).json(err);
 
-                res.json(normalizarCotizaciones(rows));
+                responderCotizacionesConArchivos(res, rows);
             }
         );
 
@@ -1020,7 +1229,7 @@ app.get("/mis-cotizaciones", verificarToken, (req, res) => {
         (err, rows) => {
             if (err) return res.status(500).json(err);
 
-            res.json(normalizarCotizaciones(rows));
+            responderCotizacionesConArchivos(res, rows);
         }
     );
 });

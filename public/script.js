@@ -1,7 +1,7 @@
 console.log("JS CARGADO");
 
 // =======================
-// Ã°Å¸â€Â TOKEN / AUTH
+// TOKEN / AUTH
 // =======================
 
 function obtenerPayload() {
@@ -24,7 +24,7 @@ function esAdmin() {
     return payload && payload.rol === "admin";
 }
 
-// Ã°Å¸â€Â HEADERS CON TOKEN (Bearer)
+// HEADERS CON TOKEN (Bearer)
 function authHeaders(extra = {}) {
     const token = localStorage.getItem("token");
 
@@ -35,16 +35,16 @@ function authHeaders(extra = {}) {
     };
 }
 
-// Ã°Å¸Å¡Â¨ SI NO HAY TOKEN Ã¢â€ â€™ LOGIN
+// SI NO HAY TOKEN, REDIRIGE A LOGIN
 const token = localStorage.getItem("token");
 if (!token) {
     window.location.href = "/login.html";
 }
 
-// Ã°Å¸Å¡Â¨ MANEJO GLOBAL DE ERRORES
+// 🚨 MANEJO GLOBAL DE ERRORES
 async function manejarError(res) {
     if (res.status === 401 || res.status === 403) {
-        mostrarToast("SesiÃƒÂ³n expirada o no autorizada", "error");
+        mostrarToast("Sesión expirada o no autorizada", "error");
         logout();
         return true;
     }
@@ -68,12 +68,12 @@ function ocultarLoader() {
 
 
 // =======================
-// Ã°Å¸â€˜Â¥ USUARIOS
+// 👥 USUARIOS
 // =======================
 
 async function cargarUsuarios() {
 
-    // Ã°Å¸â€˜â‚¬ SOLO ADMIN
+    // 👀 SOLO ADMIN
     if (!esAdmin()) {
         document.getElementById("listaUsuarios").innerHTML = "";
         return;
@@ -100,11 +100,11 @@ async function cargarUsuarios() {
 
                 <div>
                     ${esAdmin() ? `
-                        <button onclick="editarUsuario(${user.id})">Ã¢Å“ÂÃ¯Â¸Â</button>
+                        <button onclick="editarUsuario(${user.id})">Editar</button>
                     ` : ""}
 
                     ${esAdmin() && user.usuario !== "admin" ? `
-                        <button onclick="eliminarUsuario(${user.id})">Ã°Å¸â€”â€˜Ã¯Â¸Â</button>
+                        <button onclick="eliminarUsuario(${user.id})">Eliminar</button>
                     ` : ""}
                 </div>
             </div>
@@ -118,7 +118,13 @@ async function eliminarUsuario(id) {
         return;
     }
 
-    if (!confirm("Ã‚Â¿Seguro que querÃƒÂ©s eliminar este usuario?")) return;
+    const confirmado = await mostrarModalConfirmacion({
+        titulo: "¿Eliminar usuario?",
+        texto: "Esta acción no se puede deshacer.",
+        accion: "Eliminar"
+    });
+
+    if (!confirmado) return;
 
     const res = await fetch(`/usuarios/${id}`, {
         method: "DELETE",
@@ -190,7 +196,7 @@ function alternarDetalleCotizacion(id, boton) {
 }
 
 // =======================
-// Ã°Å¸â€Â BUSCAR
+// BUSCAR
 // =======================
 
 const ESTADOS_COTIZACION = [
@@ -198,12 +204,42 @@ const ESTADOS_COTIZACION = [
     "Contactado",
     "Pendiente de pago",
     "No responde",
-    "Abonó",
+    "Afiliado",
     "Perdido"
 ];
 
+const ESTADOS_AFILIADO_LEGACY = [
+    String.fromCharCode(0x41, 0x62, 0x6f, 0x6e, 0xf3),
+    String.fromCharCode(0x41, 0x62, 0x6f, 0x6e, 0xc3, 0xb3),
+    String.fromCharCode(0x41, 0x62, 0x6f, 0x6e, 0xc3, 0x83, 0xc2, 0xb3),
+    String.fromCharCode(
+        0x41,
+        0x62,
+        0x6f,
+        0x6e,
+        0xc3,
+        0x83,
+        0xc6,
+        0x92,
+        0xc3,
+        0x82,
+        0xc2,
+        0xb3
+    )
+];
+
+function normalizarEstadoCotizacion(estado) {
+    const valor = String(estado || "").trim();
+
+    if (!valor) return "Nuevo";
+
+    return ESTADOS_AFILIADO_LEGACY.includes(valor)
+        ? "Afiliado"
+        : valor;
+}
+
 function estadoCotizacion(c) {
-    return c.estado || "Nuevo";
+    return normalizarEstadoCotizacion(c.estado);
 }
 
 function opcionesEstadoCotizacion(estadoActual) {
@@ -436,10 +472,16 @@ function renderTarjetaCotizacion(c, opciones = {}) {
 
                 <div class="archivos-box">
                     <h4>Adjuntos</h4>
+                    <label class="adjunto-dropzone" for="input-${archivosId}">
+                        <strong>Agregar imágenes</strong>
+                        <small>Podés subir más imágenes hasta llegar al máximo de 5</small>
+                    </label>
 
                     <input
                         type="file"
-                        accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif"
+                        id="input-${archivosId}"
+                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                        multiple
                         onchange="subirArchivo(event, ${c.id}, '${archivosId}')"
                     >
 
@@ -476,7 +518,7 @@ async function buscar() {
     const termino = document.getElementById("dni").value.trim();
 
     if (!termino) {
-        alert("IngresÃƒÂ¡ un DNI o telÃƒÂ©fono");
+        mostrarToast("Ingresá un DNI o teléfono", "error");
         return;
     }
     mostrarLoader();
@@ -499,6 +541,10 @@ async function buscar() {
 
     document.getElementById("nombre").value = data[0].nombre || "";
     document.getElementById("celular").value = data[0].celular || "";
+    const dniCotizacion = document.getElementById("dniCotizacion");
+    if (dniCotizacion) {
+        dniCotizacion.value = data[0].dni || termino;
+    }
 
     data.forEach(c => {
         div.innerHTML += renderTarjetaCotizacion(c);
@@ -511,59 +557,84 @@ async function buscar() {
 async function subirArchivo(event, cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
 
     const input = event.target;
-    const file = event.target.files[0];
+    const files = [...event.target.files];
 
-    if (!file) return;
+    if (files.length === 0) return;
 
-    const extensionesPermitidas =
-        /\.(jpe?g|png|webp|heic|heif)$/i;
+    const extensionesPermitidas = /\.(jpe?g|png|webp)$/i;
+    const cantidadActual = await obtenerCantidadArchivos(cotizacionId);
 
-    const esHeic = /\.(heic|heif)$/i.test(file.name);
-    const tipoCompatible =
-        file.type.startsWith("image/") ||
-        (esHeic && (
-            !file.type ||
-            file.type === "application/octet-stream"
-        ));
-
-    if (!tipoCompatible || !extensionesPermitidas.test(file.name)) {
-        mostrarToast(
-            "SeleccionÃƒÂ¡ una imagen JPG, PNG, WEBP o HEIC",
-            "error"
-        );
+    if (cantidadActual + files.length > 5) {
+        mostrarToast("Podés adjuntar hasta 5 imágenes por cotización", "error");
         input.value = "";
         return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-        mostrarToast("La imagen no puede superar los 5 MB", "error");
-        input.value = "";
-        return;
-    }
+    for (const file of files) {
+        const tipoCompatible =
+            ["image/jpeg", "image/png", "image/webp"].includes(file.type);
 
-    const formData = new FormData();
-    formData.append("archivo", file);
+        if (!tipoCompatible || !extensionesPermitidas.test(file.name)) {
+            mostrarToast(
+                "Seleccioná imágenes JPG, JPEG, PNG o WEBP",
+                "error"
+            );
+            input.value = "";
+            return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+            mostrarToast("Cada imagen puede pesar hasta 5 MB", "error");
+            input.value = "";
+            return;
+        }
+    }
 
     const token = localStorage.getItem("token");
+    let subidas = 0;
 
-    const res = await fetch(`/subir-archivo/${cotizacionId}`, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${token}`
-        },
-        body: formData
-    });
+    for (const file of files) {
+        const formData = new FormData();
+        formData.append("archivo", file);
 
-    if (res.ok) {
-        mostrarToast("Imagen adjuntada", "success");
-        input.value = "";
-        cargarArchivos(cotizacionId, contenedorId);
-    } else {
-        const error = await res.json().catch(() => ({}));
-        mostrarToast(error.error || "Error al subir la imagen", "error");
+        const res = await fetch(`/subir-archivo/${cotizacionId}`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${token}`
+            },
+            body: formData
+        });
+
+        if (!res.ok) {
+            const error = await res.json().catch(() => ({}));
+            mostrarToast(error.error || "Error al subir la imagen", "error");
+            input.value = "";
+            cargarArchivos(cotizacionId, contenedorId);
+            return;
+        }
+
+        subidas++;
     }
+
+    mostrarToast(
+        subidas === 1 ? "Imagen adjuntada" : "Imágenes adjuntadas",
+        "success"
+    );
+    input.value = "";
+    cargarArchivos(cotizacionId, contenedorId);
 }
 
+async function obtenerCantidadArchivos(cotizacionId) {
+    const res = await fetch(`/archivos/${cotizacionId}`, {
+        headers: authHeaders()
+    });
+
+    if (!res.ok) return 0;
+
+    const archivos = await res.json();
+
+    return archivos.length;
+}
 function escaparHtml(texto) {
     const elemento = document.createElement("div");
     elemento.textContent = texto || "";
@@ -590,7 +661,7 @@ async function cargarArchivos(cotizacionId, contenedorId = `archivos-${cotizacio
     div.innerHTML = "";
 
     if (archivos.length === 0) {
-        div.innerHTML = '<p class="sin-adjuntos">Sin imÃƒÂ¡genes adjuntas.</p>';
+        div.innerHTML = '<p class="sin-adjuntos">Sin imágenes adjuntas.</p>';
         return;
     }
 
@@ -627,8 +698,53 @@ async function cargarArchivos(cotizacionId, contenedorId = `archivos-${cotizacio
     });
 }
 
+let resolverModalConfirmacion = null;
+
+function mostrarModalConfirmacion({
+    titulo,
+    texto,
+    accion
+}) {
+    const modal = document.getElementById("modalEliminarAdjunto");
+    const tituloEl = document.getElementById("modalConfirmacionTitulo");
+    const textoEl = document.getElementById("modalConfirmacionTexto");
+    const accionEl = document.getElementById("modalConfirmacionAccion");
+
+    tituloEl.textContent = titulo;
+    textoEl.textContent = texto;
+    accionEl.textContent = accion;
+    modal.style.display = "flex";
+
+    return new Promise(resolve => {
+        resolverModalConfirmacion = resolve;
+    });
+}
+
+function cerrarModalConfirmacion(resultado) {
+    document.getElementById("modalEliminarAdjunto").style.display = "none";
+
+    if (resolverModalConfirmacion) {
+        resolverModalConfirmacion(resultado);
+        resolverModalConfirmacion = null;
+    }
+}
+
+function cancelarModalConfirmacion() {
+    cerrarModalConfirmacion(false);
+}
+
+function confirmarModalConfirmacion() {
+    cerrarModalConfirmacion(true);
+}
+
 async function eliminarArchivo(archivoId, cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
-    if (!confirm("Ã‚Â¿QuerÃƒÂ©s eliminar esta imagen adjunta?")) return;
+    const confirmado = await mostrarModalConfirmacion({
+        titulo: "¿Eliminar imagen adjunta?",
+        texto: "Esta acción no se puede deshacer.",
+        accion: "Eliminar"
+    });
+
+    if (!confirmado) return;
 
     const res = await fetch(`/archivos/${archivoId}`, {
         method: "DELETE",
@@ -718,7 +834,7 @@ async function descargarPDF(id) {
     const card = document.getElementById(`card-${id}`);
 
     if (!card) {
-        mostrarToast("No se encontrÃƒÂ³ la cotizaciÃƒÂ³n", "error");
+        mostrarToast("No se encontró la cotización", "error");
         return;
     }
 
@@ -788,89 +904,209 @@ async function descargarPDF(id) {
 
 }
 // =======================
-// Ã¢Å¾â€¢ AGREGAR
+// ➕ AGREGAR
 // =======================
 
 async function agregar() {
-    const data = {
-        dni: document.getElementById("dni").value,
+    const adjuntoInput = document.getElementById("adjuntoCotizacion");
+    const adjuntos = adjuntoInput ? [...adjuntoInput.files] : [];
+    const dniCotizacionValor =
+        document.getElementById("dniCotizacion").value ||
+        document.getElementById("dni").value;
+    const formData = new FormData();
 
-        nombre: document.getElementById("nombre").value,
+    formData.append("dni", dniCotizacionValor);
+    formData.append("nombre", document.getElementById("nombre").value);
+    formData.append("celular", document.getElementById("celular").value);
+    formData.append("plan", document.getElementById("plan").value);
+    formData.append(
+        "tipo_cobertura",
+        document.getElementById("tipoCobertura").value
+    );
+    formData.append("valor", document.getElementById("valor").value);
+    formData.append("modalidad", document.getElementById("modalidad").value);
+    formData.append("vigencia", document.getElementById("vigencia").value);
+    formData.append(
+        "referido",
+        document.getElementById("referido").checked ? "Si" : "No"
+    );
+    formData.append(
+        "congelamiento",
+        document.getElementById("congelamiento").value
+    );
+    formData.append(
+        "bonificacion",
+        document.getElementById("bonificacion").value || 0
+    );
+    formData.append(
+        "bonificacion_aportes",
+        document.getElementById("bonificacionAportes").value || 0
+    );
+    formData.append("comentarios", document.getElementById("comentarios").value);
 
-        celular: document.getElementById("celular").value,
-
-        plan: document.getElementById("plan").value,
-
-        tipo_cobertura:
-            document.getElementById("tipoCobertura").value,
-
-        valor: document.getElementById("valor").value,
-
-        modalidad:
-            document.getElementById("modalidad").value,
-
-        vigencia:
-            document.getElementById("vigencia").value,
-
-        referido:
-            document.getElementById("referido").checked
-                ? "SÃƒÂ­"
-                : "No",
-
-        congelamiento:
-            document.getElementById("congelamiento").value,
-
-        bonificacion:
-            document.getElementById("bonificacion").value || 0,
-
-        bonificacion_aportes:
-            document.getElementById("bonificacionAportes").value || 0,
-
-        comentarios:
-            document.getElementById("comentarios").value
-    };
+    adjuntos.forEach(archivo => {
+        formData.append("imagenes", archivo);
+    });
 
     const res = await fetch("/agregar", {
         method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify(data)
+        headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`
+        },
+        body: formData
     });
-    document.getElementById("nombre").value = "";
-    document.getElementById("celular").value = "";
-    document.getElementById("valor").value = "";
-    document.getElementById("comentarios").value = "";
 
-    document.getElementById("plan").selectedIndex = 0;
-    document.getElementById("tipoCobertura").selectedIndex = 0;
-    document.getElementById("modalidad").selectedIndex = 0;
-
-    document.getElementById("referido").checked = false;
-
-    document.getElementById("congelamiento").value = "";
-    document.getElementById("bonificacion").value = "";
-    document.getElementById("bonificacionAportes").value = "";
-
-    document.getElementById("vigencia").value = "";
     if (await manejarError(res)) return;
 
     if (res.ok) {
         mostrarToast("Guardado", "success");
 
         document.getElementById("nombre").value = "";
+        document.getElementById("dniCotizacion").value = "";
         document.getElementById("celular").value = "";
         document.getElementById("plan").value = "";
         document.getElementById("valor").value = "";
         document.getElementById("comentarios").value = "";
+        document.getElementById("tipoCobertura").selectedIndex = 0;
+        document.getElementById("modalidad").selectedIndex = 0;
+        document.getElementById("referido").checked = false;
+        document.getElementById("congelamiento").value = "";
+        document.getElementById("bonificacion").value = "";
+        document.getElementById("bonificacionAportes").value = "";
+        document.getElementById("vigencia").value = "";
+
+        if (adjuntoInput) {
+            adjuntoInput.value = "";
+        }
+
+        document.getElementById("dni").value = dniCotizacionValor;
+        previsualizarAdjuntosCotizacion();
+        actualizarTotalCotizacion();
 
         buscar();
     } else {
-        mostrarToast("Error", "error");
+        const error = await res.json().catch(() => ({}));
+        mostrarToast(error.error || "Error", "error");
     }
 }
 
-// =======================
-// Ã°Å¸â€™Â¬ COMENTARIOS
-// =======================
+function previsualizarAdjuntosCotizacion() {
+    const input = document.getElementById("adjuntoCotizacion");
+    const preview = document.getElementById("previewAdjuntosCotizacion");
+    const files = input ? [...input.files] : [];
+
+    if (!preview) return;
+
+    if (files.length === 0) {
+        preview.innerHTML = "<small>Sin archivos seleccionados</small>";
+        return;
+    }
+
+    if (files.length > 5) {
+        mostrarToast("Podés seleccionar hasta 5 imágenes", "error");
+        input.value = "";
+        preview.innerHTML = "<small>Sin archivos seleccionados</small>";
+        return;
+    }
+
+    const extensionesPermitidas = /\.(jpe?g|png|webp)$/i;
+    const invalidas = files.some(file =>
+        !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
+        !extensionesPermitidas.test(file.name) ||
+        file.size > 5 * 1024 * 1024
+    );
+
+    if (invalidas) {
+        mostrarToast("Seleccioná imágenes JPG, JPEG, PNG o WEBP de hasta 5 MB", "error");
+        input.value = "";
+        preview.innerHTML = "<small>Sin archivos seleccionados</small>";
+        return;
+    }
+
+    preview.innerHTML = files.map(file => `
+        <div class="adjunto-preview-item">
+            <img src="${URL.createObjectURL(file)}" alt="">
+            <span>${escaparHtml(file.name)}</span>
+        </div>
+    `).join("");
+}
+
+async function subirAdjuntosCotizacionNueva(cotizacionId, archivos) {
+    const extensionesPermitidas = /\.(jpe?g|png|webp)$/i;
+
+    if (archivos.length > 5) {
+        mostrarToast("Podés adjuntar hasta 5 imágenes por cotización", "error");
+        return false;
+    }
+
+    for (const archivo of archivos) {
+        const tipoCompatible =
+            ["image/jpeg", "image/png", "image/webp"].includes(archivo.type);
+
+        if (!tipoCompatible || !extensionesPermitidas.test(archivo.name)) {
+            mostrarToast("Seleccioná imágenes JPG, JPEG, PNG o WEBP", "error");
+            return false;
+        }
+
+        if (archivo.size > 5 * 1024 * 1024) {
+            mostrarToast("Cada imagen puede pesar hasta 5 MB", "error");
+            return false;
+        }
+    }
+
+    for (const archivo of archivos) {
+        const formData = new FormData();
+        formData.append("archivo", archivo);
+
+        const res = await fetch(`/subir-archivo/${cotizacionId}`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${localStorage.getItem("token")}`
+            },
+            body: formData
+        });
+
+        if (!res.ok) {
+            const error = await res.json().catch(() => ({}));
+            mostrarToast(error.error || "No se pudo adjuntar la imagen", "error");
+            return false;
+        }
+    }
+
+    return true;
+}
+function numeroCotizacion(id) {
+    const valor = document.getElementById(id)?.value || "0";
+    const normalizado = String(valor)
+        .replace(/\./g, "")
+        .replace(",", ".");
+
+    return Number(normalizado) || 0;
+}
+
+function actualizarTotalCotizacion() {
+    const total =
+        numeroCotizacion("valor")
+        - numeroCotizacion("bonificacion")
+        - numeroCotizacion("bonificacionAportes");
+    const totalEl = document.getElementById("totalCotizacion");
+
+    if (!totalEl) return;
+
+    totalEl.textContent = `$ ${Math.max(total, 0).toLocaleString("es-AR")}`;
+}
+
+function inicializarTotalCotizacion() {
+    ["valor", "bonificacion", "bonificacionAportes"].forEach(id => {
+        const input = document.getElementById(id);
+
+        if (input) {
+            input.addEventListener("input", actualizarTotalCotizacion);
+        }
+    });
+
+    actualizarTotalCotizacion();
+}
 
 let comentarioId = null;
 
@@ -905,7 +1141,7 @@ async function guardarComentario() {
 }
 
 // =======================
-// Ã¢Å“ÂÃ¯Â¸Â EDITAR USUARIO
+// EDITAR USUARIO
 // =======================
 
 let usuarioEditando = null;
@@ -946,7 +1182,7 @@ async function guardarEdicion() {
 }
 
 // =======================
-// Ã¢Å¾â€¢ CREAR USUARIO
+// ➕ CREAR USUARIO
 // =======================
 
 async function crearUsuario() {
@@ -978,7 +1214,7 @@ async function crearUsuario() {
 }
 
 // =======================
-// Ã°Å¸â€Â INIT
+// INIT
 // =======================
 
 window.onload = function () {
@@ -999,7 +1235,10 @@ window.onload = function () {
             <span>${payload.usuario}</span>
         `;
     }
-    // si NO es admin oculta botÃƒÂ³n usuarios
+
+    inicializarTotalCotizacion();
+
+    // si NO es admin oculta botón usuarios
     if (!esAdmin()) {
         const btnUsuarios = document.querySelector("button[onclick*='usuarios']");
         if (btnUsuarios) btnUsuarios.style.display = "none";
@@ -1011,7 +1250,7 @@ window.onload = function () {
 };
 
 // =======================
-// Ã°Å¸Å¡Âª LOGOUT
+// 🚪 LOGOUT
 // =======================
 
 function logout() {
@@ -1020,7 +1259,7 @@ function logout() {
 }
 
 // =======================
-// Ã°Å¸â€â€ TOAST
+// TOAST
 // =======================
 
 function mostrarToast(mensaje, tipo = "success") {
@@ -1043,7 +1282,7 @@ function mostrarSeccion(seccion) {
 
     document.getElementById(seccion).style.display = "block";
 
-    // si es usuarios Ã¢â€ â€™ cargar lista
+    // si es usuarios, cargar lista
     if (seccion === "usuarios") {
         cargarUsuarios();
     }
@@ -1094,7 +1333,7 @@ async function cambiarPassword() {
     if (res.ok) {
 
         mostrarToast(
-            "ContraseÃƒÂ±a actualizada",
+            "Contraseña actualizada",
             "success"
         );
 
@@ -1117,12 +1356,12 @@ function togglePassword(id, el) {
     if (input.type === "password") {
 
         input.type = "text";
-        el.textContent = "Ã°Å¸â€˜ÂÃ¯Â¸Â";
+        el.textContent = "Ver";
 
     } else {
 
         input.type = "password";
-        el.textContent = "Ã°Å¸â„¢Ë†";
+        el.textContent = "Ocultar";
     }
 }
 
@@ -1282,7 +1521,7 @@ async function cargarMisCotizaciones() {
     }
 
     // =========================
-    // Ã°Å¸â€˜â€˜ ADMIN
+    // 👑 ADMIN
     // =========================
 
     if (esAdmin()) {
@@ -1509,7 +1748,7 @@ function calcularIMC() {
     if (!peso || !alturaCm) {
 
         mostrarToast(
-            "CompletÃƒÂ¡ peso y altura",
+            "Completá peso y altura",
             "error"
         );
 
@@ -1546,9 +1785,9 @@ function calcularIMC() {
 
         observaciones = `
             <ul>
-                <li>Ã¢Å¡Â Ã¯Â¸Â Se recomienda duplicar la cuota</li>
-                <li>Ã¢ÂÅ’ ExclusiÃƒÂ³n de cirugÃƒÂ­a bariÃƒÂ¡trica</li>
-                <li>Ã°Å¸Â§Âª Requiere laboratorio de pre ingreso</li>
+                <li>Atención: se recomienda duplicar la cuota</li>
+                <li>Exclusión de cirugía bariátrica</li>
+                <li>🧪 Requiere laboratorio de pre ingreso</li>
             </ul>
         `;
 
@@ -1558,10 +1797,10 @@ function calcularIMC() {
 
         observaciones = `
             <ul>
-                <li>Ã¢Å¡Â Ã¯Â¸Â Consultar aumento de cuota</li>
-                <li>Ã¢ÂÅ’ ExclusiÃƒÂ³n de cirugÃƒÂ­a bariÃƒÂ¡trica</li>
-                <li>Ã°Å¸Â§Âª Requiere laboratorio</li>
-                <li>Ã¢ÂÂ¤Ã¯Â¸Â Requiere ecodoppler</li>
+                <li>Atención: consultar aumento de cuota</li>
+                <li>Exclusión de cirugía bariátrica</li>
+                <li>🧪 Requiere laboratorio</li>
+                <li>Requiere ecodoppler</li>
             </ul>
         `;
 
@@ -1571,7 +1810,7 @@ function calcularIMC() {
 
         observaciones = `
             <ul>
-                <li>Ã°Å¸Å¡Â« Corresponde ÃƒÂºnicamente plan ambulatorio</li>
+                <li>🚫 Corresponde únicamente plan ambulatorio</li>
             </ul>
         `;
     }
@@ -1583,7 +1822,7 @@ function calcularIMC() {
         <div class="card">
 
             <h3>
-                Ã¢Å¡â€“Ã¯Â¸Â IMC: ${imc.toFixed(1)}
+                IMC: ${imc.toFixed(1)}
             </h3>
 
             <p>
@@ -1616,7 +1855,7 @@ function calcularIMCPediatrico() {
     if (!edad || !peso || !alturaCm) {
 
         mostrarToast(
-            "CompletÃƒÂ¡ todos los campos",
+            "Completá todos los campos",
             "error"
         );
 
@@ -1626,7 +1865,7 @@ function calcularIMCPediatrico() {
     if (edad < 2) {
 
         mostrarToast(
-            "La calculadora es para mayores de 2 aÃƒÂ±os",
+            "La calculadora es para mayores de 2 años",
             "error"
         );
 
@@ -1665,7 +1904,7 @@ function calcularIMCPediatrico() {
 
         estado = "Obesidad";
         mensaje =
-            "El valor es elevado y requiere evaluaciÃƒÂ³n profesional.";
+            "El valor es elevado y requiere evaluación profesional.";
     }
 
     document.getElementById("imcNumeroPediatrico")
@@ -1676,7 +1915,7 @@ function calcularIMCPediatrico() {
 
     document.getElementById("imcTextoPediatrico")
         .textContent =
-        `${mensaje} La evaluaciÃƒÂ³n definitiva depende de percentiles pediÃƒÂ¡tricos.`;
+        `${mensaje} La evaluación definitiva depende de percentiles pediátricos.`;
 }
 
 // =======================
@@ -1700,7 +1939,7 @@ function syncPesoInput(valor) {
 }
 
 // =======================
-// SYNC IMC PEDIÃƒÂTRICO
+// SYNC IMC PEDIATRICO
 // =======================
 
 function syncEdad(valor) {
@@ -1768,7 +2007,7 @@ function calcularIMCAutomatico() {
 
         estado = "IMC 33-35";
         texto =
-            "Se recomienda duplicar la cuota - ExclusiÃƒÂ³n de cirugÃƒÂ­a bariÃƒÂ¡trica - Requiere laboratorio de pre ingreso";
+            "Se recomienda duplicar la cuota - Exclusión de cirugía bariátrica - Requiere laboratorio de pre ingreso";
 
         color = "#e53935";
 
@@ -1776,7 +2015,7 @@ function calcularIMCAutomatico() {
 
         estado = "IMC 35-38";
         texto =
-            "Aumento de cuota - ExclusiÃƒÂ³n de cirugÃƒÂ­a bariÃƒÂ¡trica - Requiere laboratorio y ecodoppler de pre ingreso ";
+            "Aumento de cuota - Exclusión de cirugía bariátrica - Requiere laboratorio y ecodoppler de pre ingreso ";
 
         color = "#c62828";
 
