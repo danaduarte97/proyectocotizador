@@ -613,23 +613,15 @@
 
 
     <div id="loaderGlobal" class="loader-overlay" style="display:none;">
-
         <div class="loader">
-
-            <svg class="svg-wrap" viewBox="0 0 120 30">
-
-                <circle class="circle circle-one" cx="15" cy="15" r="5"></circle>
-
-                <circle class="circle circle-two" cx="60" cy="15" r="5"></circle>
-
-                <circle class="circle circle-three" cx="105" cy="15" r="5"></circle>
-
-                <path class="svg-stroke" d="M15 15 H105" stroke-width="5" stroke-linecap="round"></path>
-
-            </svg>
-
+            <div class="loader__balls">
+                <div class="loader__balls__group">
+                    <div class="ball item1"></div>
+                    <div class="ball item2"></div>
+                    <div class="ball item3"></div>
+                </div>
+            </div>
         </div>
-
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>

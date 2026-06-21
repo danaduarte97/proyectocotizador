@@ -52,18 +52,30 @@ async function manejarError(res) {
 }
 
 
-function mostrarLoader() {
+let cargasActivas = 0;
 
-    document.getElementById(
-        "loaderGlobal"
-    ).style.display = "flex";
+function mostrarLoader() {
+    cargasActivas++;
+
+    const loader = document.getElementById("loaderGlobal");
+
+    if (loader) {
+        loader.style.display = "flex";
+        loader.setAttribute("aria-busy", "true");
+    }
 }
 
 function ocultarLoader() {
+    cargasActivas = Math.max(0, cargasActivas - 1);
 
-    document.getElementById(
-        "loaderGlobal"
-    ).style.display = "none";
+    if (cargasActivas > 0) return;
+
+    const loader = document.getElementById("loaderGlobal");
+
+    if (loader) {
+        loader.style.display = "none";
+        loader.removeAttribute("aria-busy");
+    }
 }
 
 
@@ -324,7 +336,7 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                             </tr>
                             <tr>
                                 <td>Modalidad</td>
-                                <td>${c.modalidad || "PARTICULAR"}</td>
+                                <td>${c.modalidad || "Particular"}</td>
                                 <td></td>
                             </tr>
                             <tr>
@@ -349,10 +361,10 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                         <span>Total a pagar</span>
                         <strong>
                             $ ${(
-                                Number(c.valor || 0)
-                                - Number(c.bonificacion || 0)
-                                - Number(c.bonificacion_aportes || 0)
-                            ).toLocaleString("es-AR")}
+            Number(c.valor || 0)
+            - Number(c.bonificacion || 0)
+            - Number(c.bonificacion_aportes || 0)
+        ).toLocaleString("es-AR")}
                         </strong>
                     </div>
 
@@ -417,7 +429,7 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                     <p><b>Valor:</b> $${c.valor || 0}</p>
                     <p><b>Bonificacion comercial:</b> $${c.bonificacion || 0}</p>
                     <p><b>Bonificacion por aportes:</b> $${c.bonificacion_aportes || 0}</p>
-                    <p><b>Modalidad:</b> ${c.modalidad || "PARTICULAR"}</p>
+                    <p><b>Modalidad:</b> ${c.modalidad || "Particular"}</p>
                     <p><b>Valida hasta:</b> ${c.vigencia || "-"}</p>
                     <p><b>Referido:</b> ${c.referido || "No"}</p>
                     <p><b>Congelamiento:</b> ${c.congelamiento || "Sin congelamiento"}</p>
@@ -514,10 +526,91 @@ function renderTarjetaCotizacion(c, opciones = {}) {
         </div>
     `;
 }
-async function buscar() {
+let busquedaCotizacionActual = 0;
+
+function limpiarResultadosBusqueda() {
+    const div = obtenerContenedorResultadosBusqueda();
+
+    if (div) {
+        div.innerHTML = "";
+    }
+}
+
+function obtenerContenedorResultadosBusqueda() {
+    return document.querySelector("#cotizador #resultados")
+        || document.getElementById("resultados");
+}
+
+function setValorCampo(id, valor = "") {
+    const campo = document.getElementById(id);
+
+    if (campo) {
+        campo.value = valor;
+    }
+}
+
+function setIndiceCampo(id, indice = 0) {
+    const campo = document.getElementById(id);
+
+    if (campo) {
+        campo.selectedIndex = indice;
+    }
+}
+
+function setCheckedCampo(id, checked = false) {
+    const campo = document.getElementById(id);
+
+    if (campo) {
+        campo.checked = checked;
+    }
+}
+
+function limpiarFormularioCotizacion() {
+    [
+        "dniCotizacion",
+        "nombre",
+        "celular",
+        "valor",
+        "bonificacion",
+        "bonificacionAportes",
+        "vigencia",
+        "congelamiento",
+        "comentarios"
+    ].forEach(id => setValorCampo(id));
+
+    setIndiceCampo("plan");
+    setIndiceCampo("tipoCobertura");
+    setIndiceCampo("modalidad");
+    setCheckedCampo("referido");
+
+    const adjuntoInput = document.getElementById("adjuntoCotizacion");
+    if (adjuntoInput) {
+        adjuntoInput.value = "";
+    }
+
+    const preview = document.getElementById("previewAdjuntosCotizacion");
+    if (preview) {
+        preview.innerHTML = "<small>Sin archivos seleccionados</small>";
+    }
+
+    actualizarTotalCotizacion();
+}
+
+function completarFormularioCotizacion(cotizacion, termino) {
+    setValorCampo("nombre", cotizacion.nombre || "");
+    setValorCampo("celular", cotizacion.celular || "");
+    setValorCampo("dniCotizacion", cotizacion.dni || termino);
+}
+
+async function buscarAnterior() {
+    const busquedaId = ++busquedaCotizacionActual;
     const termino = document.getElementById("dni").value.trim();
 
+    limpiarResultadosBusqueda();
+    limpiarFormularioCotizacion();
+
     if (!termino) {
+        ocultarLoader();
         mostrarToast("Ingresá un DNI o teléfono", "error");
         return;
     }
@@ -526,9 +619,17 @@ async function buscar() {
         headers: authHeaders()
     });
 
-    if (await manejarError(res)) return;
+    if (busquedaId !== busquedaCotizacionActual) return;
+
+    if (await manejarError(res)) {
+        ocultarLoader();
+        return;
+    }
 
     const data = await res.json();
+
+    if (busquedaId !== busquedaCotizacionActual) return;
+
     ocultarLoader();
 
     const div = document.getElementById("resultados");
@@ -546,15 +647,71 @@ async function buscar() {
         dniCotizacion.value = data[0].dni || termino;
     }
 
-    data.forEach(c => {
-        div.innerHTML += renderTarjetaCotizacion(c);
+    div.innerHTML = data.map(c => renderTarjetaCotizacion(c)).join("");
 
+    data.forEach(c => {
         cargarArchivos(c.id);
         cargarComentarios(c.id);
     });
 }
 
-async function subirArchivo(event, cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
+async function buscar() {
+    const busquedaId = ++busquedaCotizacionActual;
+    const termino = document.getElementById("dni").value.trim();
+
+    limpiarResultadosBusqueda();
+    limpiarFormularioCotizacion();
+
+    if (!termino) {
+        mostrarToast("IngresÃ¡ un DNI o telÃ©fono", "error");
+        return;
+    }
+
+    mostrarLoader();
+
+    try {
+        const res = await fetch(`/buscar/${encodeURIComponent(termino)}`, {
+            headers: authHeaders()
+        });
+
+        if (busquedaId !== busquedaCotizacionActual) return;
+
+        if (await manejarError(res)) return;
+
+        const data = await res.json();
+
+        if (busquedaId !== busquedaCotizacionActual) return;
+
+        const div = obtenerContenedorResultadosBusqueda();
+
+        if (!div) return;
+
+        div.innerHTML = "";
+
+        if (data.length === 0) {
+            div.innerHTML = "<p>No hay cotizaciones</p>";
+            return;
+        }
+
+        completarFormularioCotizacion(data[0], termino);
+
+        div.innerHTML = data.map(c => renderTarjetaCotizacion(c)).join("");
+
+        data.forEach(c => {
+            cargarArchivos(c.id);
+            cargarComentarios(c.id);
+        });
+    } catch (error) {
+        if (busquedaId === busquedaCotizacionActual) {
+            limpiarResultadosBusqueda();
+            mostrarToast("No se pudo realizar la bÃºsqueda", "error");
+        }
+    } finally {
+        ocultarLoader();
+    }
+}
+
+async function subirArchivoAnterior(event, cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
 
     const input = event.target;
     const files = [...event.target.files];
@@ -624,6 +781,84 @@ async function subirArchivo(event, cotizacionId, contenedorId = `archivos-${coti
     cargarArchivos(cotizacionId, contenedorId);
 }
 
+async function subirArchivo(event, cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
+
+    const input = event.target;
+    const files = [...event.target.files];
+
+    if (files.length === 0) return;
+
+    const extensionesPermitidas = /\.(jpe?g|png|webp)$/i;
+    const cantidadActual = await obtenerCantidadArchivos(cotizacionId);
+
+    if (cantidadActual + files.length > 5) {
+        mostrarToast("PodÃ©s adjuntar hasta 5 imÃ¡genes por cotizaciÃ³n", "error");
+        input.value = "";
+        return;
+    }
+
+    for (const file of files) {
+        const tipoCompatible =
+            ["image/jpeg", "image/png", "image/webp"].includes(file.type);
+
+        if (!tipoCompatible || !extensionesPermitidas.test(file.name)) {
+            mostrarToast(
+                "SeleccionÃ¡ imÃ¡genes JPG, JPEG, PNG o WEBP",
+                "error"
+            );
+            input.value = "";
+            return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+            mostrarToast("Cada imagen puede pesar hasta 5 MB", "error");
+            input.value = "";
+            return;
+        }
+    }
+
+    mostrarLoader();
+
+    try {
+        const token = localStorage.getItem("token");
+        let subidas = 0;
+
+        for (const file of files) {
+            const formData = new FormData();
+            formData.append("archivo", file);
+
+            const res = await fetch(`/subir-archivo/${cotizacionId}`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${token}`
+                },
+                body: formData
+            });
+
+            if (!res.ok) {
+                const error = await res.json().catch(() => ({}));
+                mostrarToast(error.error || "Error al subir la imagen", "error");
+                input.value = "";
+                cargarArchivos(cotizacionId, contenedorId);
+                return;
+            }
+
+            subidas++;
+        }
+
+        mostrarToast(
+            subidas === 1 ? "Imagen adjuntada" : "ImÃ¡genes adjuntadas",
+            "success"
+        );
+        input.value = "";
+        cargarArchivos(cotizacionId, contenedorId);
+    } catch (error) {
+        mostrarToast("No se pudo subir la imagen", "error");
+    } finally {
+        ocultarLoader();
+    }
+}
+
 async function obtenerCantidadArchivos(cotizacionId) {
     const res = await fetch(`/archivos/${cotizacionId}`, {
         headers: authHeaders()
@@ -641,7 +876,7 @@ function escaparHtml(texto) {
     return elemento.innerHTML;
 }
 
-async function cargarArchivos(cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
+async function cargarArchivosAnterior(cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
 
     const res = await fetch(`/archivos/${cotizacionId}`, {
         headers: authHeaders()
@@ -696,6 +931,71 @@ async function cargarArchivos(cotizacionId, contenedorId = `archivos-${cotizacio
             </div>
         `;
     });
+}
+
+async function cargarArchivos(cotizacionId, contenedorId = `archivos-${cotizacionId}`) {
+
+    const div = document.getElementById(contenedorId);
+
+    if (!div) return;
+
+    mostrarLoader();
+
+    try {
+        const res = await fetch(`/archivos/${cotizacionId}`, {
+            headers: authHeaders()
+        });
+
+        if (!res.ok) {
+            div.innerHTML = "<p>No se pudieron cargar los adjuntos.</p>";
+            return;
+        }
+
+        const archivos = await res.json();
+
+        div.innerHTML = "";
+
+        if (archivos.length === 0) {
+            div.innerHTML = '<p class="sin-adjuntos">Sin imÃ¡genes adjuntas.</p>';
+            return;
+        }
+
+        div.innerHTML = archivos.map(a => {
+            const ruta = `/uploads/${encodeURIComponent(a.archivo)}`;
+
+            return `
+                <div class="adjunto-item">
+                    <a
+                        class="adjunto-imagen"
+                        href="${ruta}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Abrir ${escaparHtml(a.nombre)}"
+                    >
+                        <img
+                            src="${ruta}"
+                            alt="${escaparHtml(a.nombre)}"
+                            loading="lazy"
+                        >
+                        <span>${escaparHtml(a.nombre)}</span>
+                    </a>
+                    <button
+                        type="button"
+                        class="adjunto-eliminar"
+                        onclick="eliminarArchivo(${a.id}, ${cotizacionId}, '${contenedorId}')"
+                        aria-label="Eliminar ${escaparHtml(a.nombre)}"
+                        title="Eliminar imagen"
+                    >
+                        Eliminar
+                    </button>
+                </div>
+            `;
+        }).join("");
+    } catch (error) {
+        div.innerHTML = "<p>No se pudieron cargar los adjuntos.</p>";
+    } finally {
+        ocultarLoader();
+    }
 }
 
 let resolverModalConfirmacion = null;
@@ -907,7 +1207,7 @@ async function descargarPDF(id) {
 // ➕ AGREGAR
 // =======================
 
-async function agregar() {
+async function agregarAnterior() {
     const adjuntoInput = document.getElementById("adjuntoCotizacion");
     const adjuntos = adjuntoInput ? [...adjuntoInput.files] : [];
     const dniCotizacionValor =
@@ -987,6 +1287,97 @@ async function agregar() {
     } else {
         const error = await res.json().catch(() => ({}));
         mostrarToast(error.error || "Error", "error");
+    }
+}
+
+async function agregar() {
+    const adjuntoInput = document.getElementById("adjuntoCotizacion");
+    const adjuntos = adjuntoInput ? [...adjuntoInput.files] : [];
+    const dniCotizacionValor =
+        document.getElementById("dniCotizacion").value ||
+        document.getElementById("dni").value;
+    const formData = new FormData();
+
+    formData.append("dni", dniCotizacionValor);
+    formData.append("nombre", document.getElementById("nombre").value);
+    formData.append("celular", document.getElementById("celular").value);
+    formData.append("plan", document.getElementById("plan").value);
+    formData.append(
+        "tipo_cobertura",
+        document.getElementById("tipoCobertura").value
+    );
+    formData.append("valor", document.getElementById("valor").value);
+    formData.append("modalidad", document.getElementById("modalidad").value);
+    formData.append("vigencia", document.getElementById("vigencia").value);
+    formData.append(
+        "referido",
+        document.getElementById("referido").checked ? "Si" : "No"
+    );
+    formData.append(
+        "congelamiento",
+        document.getElementById("congelamiento").value
+    );
+    formData.append(
+        "bonificacion",
+        document.getElementById("bonificacion").value || 0
+    );
+    formData.append(
+        "bonificacion_aportes",
+        document.getElementById("bonificacionAportes").value || 0
+    );
+    formData.append("comentarios", document.getElementById("comentarios").value);
+
+    adjuntos.forEach(archivo => {
+        formData.append("imagenes", archivo);
+    });
+
+    mostrarLoader();
+
+    try {
+        const res = await fetch("/agregar", {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${localStorage.getItem("token")}`
+            },
+            body: formData
+        });
+
+        if (await manejarError(res)) return;
+
+        if (res.ok) {
+            mostrarToast("Guardado", "success");
+
+            document.getElementById("nombre").value = "";
+            document.getElementById("dniCotizacion").value = "";
+            document.getElementById("celular").value = "";
+            document.getElementById("plan").value = "";
+            document.getElementById("valor").value = "";
+            document.getElementById("comentarios").value = "";
+            document.getElementById("tipoCobertura").selectedIndex = 0;
+            document.getElementById("modalidad").selectedIndex = 0;
+            document.getElementById("referido").checked = false;
+            document.getElementById("congelamiento").value = "";
+            document.getElementById("bonificacion").value = "";
+            document.getElementById("bonificacionAportes").value = "";
+            document.getElementById("vigencia").value = "";
+
+            if (adjuntoInput) {
+                adjuntoInput.value = "";
+            }
+
+            document.getElementById("dni").value = dniCotizacionValor;
+            previsualizarAdjuntosCotizacion();
+            actualizarTotalCotizacion();
+
+            buscar();
+        } else {
+            const error = await res.json().catch(() => ({}));
+            mostrarToast(error.error || "Error", "error");
+        }
+    } catch (error) {
+        mostrarToast("No se pudo guardar la cotizaciÃ³n", "error");
+    } finally {
+        ocultarLoader();
     }
 }
 
@@ -1237,6 +1628,17 @@ window.onload = function () {
     }
 
     inicializarTotalCotizacion();
+
+    const inputBusqueda = document.getElementById("dni");
+    if (inputBusqueda) {
+        inputBusqueda.addEventListener("input", () => {
+            if (!inputBusqueda.value.trim()) {
+                busquedaCotizacionActual++;
+                limpiarResultadosBusqueda();
+                limpiarFormularioCotizacion();
+            }
+        });
+    }
 
     // si NO es admin oculta botón usuarios
     if (!esAdmin()) {
@@ -1492,7 +1894,7 @@ async function guardarSeguimientoCotizacion(id, estadoId, seguimientoId) {
     }
 }
 
-async function cargarMisCotizaciones() {
+async function cargarMisCotizacionesAnterior() {
 
     completarSelectEstados();
 
@@ -1673,9 +2075,9 @@ async function cargarMisCotizaciones() {
                 >
 
                     ${cotizaciones.map(c => renderTarjetaCotizacion(c, {
-                        sufijo: `mis-vendedora-${c.id}`,
-                        clases: "historial-card"
-                    })).join("")}
+            sufijo: `mis-vendedora-${c.id}`,
+            clases: "historial-card"
+        })).join("")}
 
                 </div>
 
@@ -1689,6 +2091,18 @@ async function cargarMisCotizaciones() {
             cargarComentarios(c.id, `comentarios-${sufijo}`);
         });
     });
+}
+
+async function cargarMisCotizaciones() {
+    mostrarLoader();
+
+    try {
+        await cargarMisCotizacionesAnterior();
+    } catch (error) {
+        mostrarToast("No se pudieron cargar las cotizaciones", "error");
+    } finally {
+        ocultarLoader();
+    }
 }
 
 function toggleHistorial(dni) {

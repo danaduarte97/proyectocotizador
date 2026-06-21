@@ -25,10 +25,43 @@
         </div>
 
         <button onclick="login()">Ingresar</button>
+        <p id="loginMensaje" class="login-mensaje" role="status"></p>
+    </div>
+
+    <div id="loaderGlobal" class="loader-overlay" style="display:none;">
+        <div class="loader">
+            <div class="loader__balls">
+                <div class="loader__balls__group">
+                    <div class="ball item1"></div>
+                    <div class="ball item2"></div>
+                    <div class="ball item3"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
-        async function login() {
+        function mostrarLoader() {
+            const loader = document.getElementById("loaderGlobal");
+
+            if (loader) {
+                loader.style.display = "flex";
+            }
+        }
+
+        function ocultarLoader() {
+            const loader = document.getElementById("loaderGlobal");
+
+            if (loader) {
+                loader.style.display = "none";
+            }
+        }
+
+        function mostrarMensajeLogin(mensaje) {
+            document.getElementById("loginMensaje").textContent = mensaje;
+        }
+
+        async function loginAnterior() {
             const usuario = document.getElementById("usuario").value;
             const password = document.getElementById("password").value;
 
@@ -46,7 +79,7 @@
             try {
                 data = await res.json();
             } catch {
-                alert("Error en el servidor");
+                mostrarMensajeLogin("Error en el servidor");
                 return;
             }
 
@@ -56,7 +89,44 @@
                 localStorage.setItem("token", data.token);
                 window.location.href = "/app.html";
             } else {
-                alert("Usuario o contraseña incorrectos");
+                mostrarMensajeLogin("Usuario o contraseÃ±a incorrectos");
+            }
+        }
+
+        async function login() {
+            const usuario = document.getElementById("usuario").value;
+            const password = document.getElementById("password").value;
+
+            mostrarMensajeLogin("");
+            mostrarLoader();
+
+            try {
+                const res = await fetch("/login", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ usuario, password })
+                });
+
+                let data;
+                try {
+                    data = await res.json();
+                } catch {
+                    mostrarMensajeLogin("Error en el servidor");
+                    return;
+                }
+
+                if (res.ok) {
+                    localStorage.setItem("token", data.token);
+                    window.location.href = "/app.html";
+                } else {
+                    mostrarMensajeLogin("Usuario o contraseÃ±a incorrectos");
+                }
+            } catch {
+                mostrarMensajeLogin("No se pudo iniciar sesiÃ³n");
+            } finally {
+                ocultarLoader();
             }
         }
 

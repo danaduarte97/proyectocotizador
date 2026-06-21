@@ -1,11 +1,11 @@
 const express = require("express");
-const sqlite3 = require("sqlite3").verbose();
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const db = require("./db");
 
 const app = express();
-const SECRET = "secreto_ultra_seguro";
+const SECRET = process.env.JWT_SECRET || "secreto_ultra_seguro";
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -31,7 +31,6 @@ app.use(express.json());
 app.use(express.static("public"));
 
 // 👉 BASE DE DATOS
-const db = new sqlite3.Database(path.join(__dirname, "database.db"));
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, uploadsDir);
@@ -204,6 +203,7 @@ function verificarToken(req, res, next) {
 }
 
 // 🔥 CREACIÓN DE TABLAS
+if (db.type === "sqlite") {
 db.serialize(() => {
 
     db.run(`
@@ -315,23 +315,51 @@ WHERE estado IN (${ESTADOS_AFILIADO_LEGACY.map(() => "?").join(", ")})
 `, ESTADOS_AFILIADO_LEGACY, () => { });
 
 });
+}
 
 // 👉 LOGIN
 app.post("/login", (req, res) => {
     const { usuario, password } = req.body;
+    const loginSql = "SELECT * FROM usuarios WHERE usuario = ?";
+
+    console.log("[login] motor base:", db.type);
+    console.log("[login] sql:", db.toNativeSql(loginSql));
 
     db.get(
-        "SELECT * FROM usuarios WHERE usuario = ?",
+        loginSql,
         [usuario],
         async (err, user) => {
 
-            if (err) return res.status(500).json(err);
+            if (err) {
+                console.error("[login] error db:", err.message);
+                return res.status(500).json(err);
+            }
+
+            console.log("[login] usuario encontrado:", user ? "si" : "no");
 
             if (!user) {
                 return res.status(401).json({ success: false });
             }
 
-            const match = await bcrypt.compare(password, user.password);
+            console.log(
+                "[login] largo hash:",
+                typeof user.password === "string" ? user.password.length : "no-string"
+            );
+            console.log(
+                "[login] password recibido:",
+                typeof password === "string" ? "string" : typeof password
+            );
+
+            let match = false;
+
+            try {
+                match = await bcrypt.compare(password, user.password);
+            } catch (errorCompare) {
+                console.error("[login] bcrypt.compare error:", errorCompare.message);
+                return res.status(500).json({ error: "Error al validar credenciales" });
+            }
+
+            console.log("[login] bcrypt.compare:", match);
 
             if (!match) {
                 return res.status(401).json({ success: false });
@@ -542,36 +570,18 @@ function manejarErrorMulter(err, res) {
     });
 }
 
-function insertarArchivosCotizacion(cotizacionId, archivos, indice, callback) {
-    if (indice >= archivos.length) {
-        callback(null);
-        return;
-    }
-
-    const archivo = archivos[indice];
-
-    db.run(
-        `INSERT INTO archivos (cotizacion_id, nombre, archivo)
-         VALUES (?, ?, ?)`,
-        [
-            cotizacionId,
-            archivo.originalname,
-            archivo.filename
-        ],
-        err => {
-            if (err) {
-                callback(err);
-                return;
-            }
-
-            insertarArchivosCotizacion(
+async function insertarArchivosCotizacion(tx, cotizacionId, archivos) {
+    for (const archivo of archivos) {
+        await tx.run(
+            `INSERT INTO archivos (cotizacion_id, nombre, archivo)
+             VALUES (?, ?, ?)`,
+            [
                 cotizacionId,
-                archivos,
-                indice + 1,
-                callback
-            );
-        }
-    );
+                archivo.originalname,
+                archivo.filename
+            ]
+        );
+    }
 }
 
 const uploadImagenesNuevaCotizacion = (req, res, next) => {
@@ -586,7 +596,7 @@ const uploadImagenesNuevaCotizacion = (req, res, next) => {
     });
 };
 
-app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, (req, res) => {
+app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, async (req, res) => {
 
     const {
         dni,
@@ -614,34 +624,12 @@ app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, (req, res) =
 
     const archivos = req.files || [];
 
-    db.run("BEGIN TRANSACTION", errBegin => {
-        if (errBegin) {
-            eliminarArchivosLocales(archivos);
-            return res.status(500).json(errBegin);
-        }
-
-        db.run(
+    try {
+        const cotizacionId = await db.transaction(async tx => {
+            const resultado = await tx.run(
             `
-        INSERT INTO cotizaciones
-        (
-        dni,
-        nombre,
-        celular,
-        plan,
-        tipo_cobertura,
-        valor,
-        bonificacion,
-        bonificacion_aportes,
-        modalidad,
-        vendedora,
-        vigencia,
-        referido,
-        congelamiento,
-        comentarios
-    )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-            [
+            INSERT INTO cotizaciones
+            (
                 dni,
                 nombre,
                 celular,
@@ -656,53 +644,42 @@ app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, (req, res) =
                 referido,
                 congelamiento,
                 comentarios
-            ],
-            function (errInsert) {
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+                [
+                    dni,
+                    nombre,
+                    celular,
+                    plan,
+                    tipo_cobertura,
+                    valor,
+                    bonificacion,
+                    bonificacion_aportes,
+                    modalidad,
+                    vendedora,
+                    vigencia,
+                    referido,
+                    congelamiento,
+                    comentarios
+                ]
+            );
 
-                if (errInsert) {
-                    eliminarArchivosLocales(archivos);
+            const id = resultado.lastID;
 
-                    return db.run("ROLLBACK", () => {
-                        res.status(500).json(errInsert);
-                    });
-                }
+            await insertarArchivosCotizacion(tx, id, archivos);
 
-                const cotizacionId = this.lastID;
+            return id;
+        });
 
-                insertarArchivosCotizacion(
-                    cotizacionId,
-                    archivos,
-                    0,
-                    errArchivos => {
-                        if (errArchivos) {
-                            eliminarArchivosLocales(archivos);
-
-                            return db.run("ROLLBACK", () => {
-                                res.status(500).json({
-                                    error: "No se pudieron guardar los adjuntos"
-                                });
-                            });
-                        }
-
-                        db.run("COMMIT", errCommit => {
-                            if (errCommit) {
-                                eliminarArchivosLocales(archivos);
-
-                                return db.run("ROLLBACK", () => {
-                                    res.status(500).json(errCommit);
-                                });
-                            }
-
-                            res.json({
-                                success: true,
-                                id: cotizacionId
-                            });
-                        });
-                    }
-                );
-            }
-        );
-    });
+        res.json({
+            success: true,
+            id: cotizacionId
+        });
+    } catch (error) {
+        eliminarArchivosLocales(archivos);
+        res.status(500).json(error);
+    }
 });
 
 app.post(

@@ -1258,7 +1258,7 @@ button:hover {
 .loader-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1267,75 +1267,195 @@ button:hover {
 }
 
 .loader {
-  width: 180px;
-  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
 }
 
-.circle {
-  fill: #21285C;
+/* From Uiverse.io by scissorsdog */
+.loader__balls {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
 }
 
-.circle-one {
-  opacity: 0;
+.loader__balls__group {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  position: relative;
+  height: 100px;
+  width: 40px;
 }
 
-.svg-stroke {
-  fill: transparent;
-  stroke-dasharray: 46.82, 93.64;
-  stroke-dashoffset: 46.82;
-  stroke: #0B9EBF;
-  opacity: 1;
+.ball {
+  height: 30px;
+  width: 30px;
+  border-radius: 15px;
+  position: absolute;
+  transform-origin: bottom;
 }
 
-.svg-wrap .svg-stroke {
-  animation: stroke-start 1.6s linear, stroke-end 1.6s 0.8s linear infinite;
+/* ANIMATION BALL 1*/
+.loader__balls__group :nth-child(1) {
+  background-color: #01BEF3;
+  animation-name: jumpinBallAnimation1;
+  animation-duration: 1000ms;
+  animation-iteration-count: infinite;
 }
 
-.svg-wrap .circle-one {
-  animation: dot-one 0s 0.8s, move-dot 1.6s 0.8s linear infinite;
-}
-
-.svg-wrap .circle-two,
-.svg-wrap .circle-three {
-  animation: move-dot 1.6s 0.8s linear infinite;
-}
-
-@keyframes dot-one {
-  from {
-    opacity: 0;
+@keyframes jumpinBallAnimation1 {
+  0% {
+    transform: translateY(0) scale(1, 1);
   }
-  to {
-    opacity: 1;
+  10% {
+    transform: translateY(0) scale(1.3, 0.8);
   }
-}
-@keyframes stroke-start {
-  50% {
-    stroke-dashoffset: 46.82;
+  11% {
+    transform: translateY(0) scale(0.7, 1.2);
+    animation-timing-function: cubic-bezier(0, 0, 0.5, 1);
+  }
+  39% {
+    transform: translateY(-75px) scale(1);
+    animation-timing-function: cubic-bezier(0, 0, 0.5, 1);
+  }
+  40% {
+    transform: translateY(-75px) scale(1);
+  }
+  41% {
+    transform: translateY(-75px) scale(1);
+    animation-timing-function: cubic-bezier(1, 0, 1, 0);
+  }
+  69% {
+    transform: translateY(0px) scale(1, 1);
+    animation-timing-function: cubic-bezier(1, 0, 1, 0);
+  }
+  70% {
+    transform: translateY(0) scale(1.5, 0.4);
+  }
+  80% {
+    transform: translateY(0) scale(0.8, 1.2);
+  }
+  90% {
+    transform: translateY(0) scale(1.1, 0.8);
   }
   100% {
-    stroke-dashoffset: 0;
+    transform: translateY(0) scale(1, 1);
   }
 }
-@keyframes stroke-end {
-  50% {
-    stroke-dasharray: 46.82, 93.64;
-    stroke-dashoffset: 0;
-    transform: translateX(0);
+/* ANIMATION BALL 2*/
+.loader__balls__group :nth-child(2) {
+  background-color: #353A9C;
+  animation-name: jumpinBallAnimation2;
+  animation-duration: 1000ms;
+  animation-iteration-count: infinite;
+}
+
+@keyframes jumpinBallAnimation2 {
+  0% {
+    transform: translateY(0) scale(1, 1);
+  }
+  10% {
+    transform: translateY(0) scale(1.3, 0.8);
+  }
+  11% {
+    transform: translateY(0) scale(0.7, 1.2);
+    animation-timing-function: cubic-bezier(0, 0.5, 0.5, 1);
+  }
+  39% {
+    transform: translateY(-75px) scale(1);
+    animation-timing-function: cubic-bezier(0, 0.5, 0.5, 1);
+  }
+  40% {
+    transform: translateY(-75px) scale(1);
+  }
+  41% {
+    transform: translateY(-75px) scale(1);
+    animation-timing-function: cubic-bezier(1, 0, 1, 0.5);
+  }
+  69% {
+    transform: translateY(0px) scale(1, 1);
+    animation-timing-function: cubic-bezier(1, 0, 1, 0.5);
+  }
+  70% {
+    transform: translateY(0) scale(1.5, 0.4);
+  }
+  80% {
+    transform: translateY(0) scale(0.8, 1.2);
+  }
+  90% {
+    transform: translateY(0) scale(1.1, 0.8);
   }
   100% {
-    stroke-dasharray: 0, 93.64;
-    stroke-dashoffset: -46.82;
-    transform: translateX(10px);
+    transform: translateY(0) scale(1, 1);
   }
 }
-@keyframes move-dot {
-  50% {
-    transform: translateX(0);
+/* ANIMATION BALL 3*/
+.loader__balls__group :nth-child(3) {
+  background-color: #20235D;
+  animation-name: jumpinBallAnimation3;
+  animation-duration: 1000ms;
+  animation-iteration-count: infinite;
+}
+
+@keyframes jumpinBallAnimation3 {
+  0% {
+    transform: translateY(0) scale(1, 1);
+  }
+  10% {
+    transform: translateY(0) scale(1.3, 0.8);
+  }
+  11% {
+    transform: translateY(0) scale(0.7, 1.2);
+    animation-timing-function: cubic-bezier(0, 1, 0.5, 1);
+  }
+  39% {
+    transform: translateY(-75px) scale(1);
+    animation-timing-function: cubic-bezier(0, 1, 0.5, 1);
+  }
+  40% {
+    transform: translateY(-75px) scale(1);
+  }
+  41% {
+    transform: translateY(-75px) scale(1);
+    animation-timing-function: cubic-bezier(1, 0, 1, 1);
+  }
+  69% {
+    transform: translateY(0px) scale(1, 1);
+    animation-timing-function: cubic-bezier(1, 0, 1, 1);
+  }
+  70% {
+    transform: translateY(0) scale(1.5, 0.4);
+  }
+  80% {
+    transform: translateY(0) scale(0.8, 1.2);
+  }
+  90% {
+    transform: translateY(0) scale(1.1, 0.8);
   }
   100% {
-    transform: translateX(10px);
+    transform: translateY(0) scale(1, 1);
   }
 }
+.loader__balls__group .item1 {
+  animation-delay: 0ms;
+}
+
+.loader__balls__group .item2 {
+  animation-delay: 100ms;
+}
+
+.loader__balls__group .item3 {
+  animation-delay: 200ms;
+}
+
 .password-box {
   position: relative;
   width: 100%;
