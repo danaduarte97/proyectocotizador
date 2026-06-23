@@ -83,6 +83,8 @@ function ocultarLoader() {
 // 👥 USUARIOS
 // =======================
 
+let usuariosCargados = [];
+
 async function cargarUsuarios() {
 
     // 👀 SOLO ADMIN
@@ -98,25 +100,29 @@ async function cargarUsuarios() {
     if (await manejarError(res)) return;
 
     const usuarios = await res.json();
+    usuariosCargados = usuarios;
 
     const contenedor = document.getElementById("listaUsuarios");
     contenedor.innerHTML = "";
 
     usuarios.forEach(user => {
+        const userId = String(user.id);
+
         contenedor.innerHTML += `
             <div class="card-user">
                 <div>
                     <strong>${user.usuario}</strong>
                     <span class="badge ${user.rol}">${user.rol}</span>
+                    <small class="orden-login">Orden login: ${user.orden_login ?? "sin definir"}</small>
                 </div>
 
                 <div>
                     ${esAdmin() ? `
-                        <button onclick="editarUsuario(${user.id})">Editar</button>
+                        <button onclick="editarUsuario('${userId}')">Editar</button>
                     ` : ""}
 
                     ${esAdmin() && user.usuario !== "admin" ? `
-                        <button onclick="eliminarUsuario(${user.id})">Eliminar</button>
+                        <button onclick="eliminarUsuario('${userId}')">Eliminar</button>
                     ` : ""}
                 </div>
             </div>
@@ -217,7 +223,8 @@ const ESTADOS_COTIZACION = [
     "Pendiente de pago",
     "No responde",
     "Afiliado",
-    "Perdido"
+    "Perdido",
+    "Anulada"
 ];
 
 const ESTADOS_AFILIADO_LEGACY = [
@@ -255,7 +262,11 @@ function estadoCotizacion(c) {
 }
 
 function opcionesEstadoCotizacion(estadoActual) {
-    return ESTADOS_COTIZACION.map(estado => `
+    const estados = esAdmin()
+        ? ESTADOS_COTIZACION
+        : ESTADOS_COTIZACION.filter(estado => estado !== "Anulada");
+
+    return estados.map(estado => `
         <option value="${estado}" ${estado === estadoActual ? "selected" : ""}>
             ${estado}
         </option>
@@ -285,7 +296,8 @@ function renderTarjetaCotizacion(c, opciones = {}) {
     const seguimientoId = `fechaSeguimiento-${sufijo}`;
     const estadoActual = estadoCotizacion(c);
     const fechaSeguimiento = fechaSeguimientoInput(c.fecha_seguimiento);
-    const clases = opciones.clases || "";
+    const clases = `${opciones.clases || ""} ${estadoActual === "Anulada" ? "cotizacion-anulada" : ""}`.trim();
+    const estadoAnulado = estadoActual === "Anulada";
     const comentarioModal = String(c.comentarios || "")
         .replace(/\\/g, "\\\\")
         .replace(/`/g, "\\`")
@@ -403,6 +415,7 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                         <p><b>Estado:</b> ${estadoActual}</p>
                         ${fechaSeguimientoResumen}
                     </div>
+                    ${estadoAnulado ? `<span class="badge-anulada">Cotizacion anulada</span>` : ""}
                 </div>
 
                 <button
@@ -520,6 +533,16 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                         >
                         <span>Descargar PDF</span>
                     </button>
+
+                    ${esAdmin() && !estadoAnulado ? `
+                        <button
+                            type="button"
+                            class="btn-anular"
+                            onclick="anularCotizacion(${c.id})"
+                        >
+                            Anular cotizacion
+                        </button>
+                    ` : ""}
                 </div>
             </div>
 
@@ -1543,32 +1566,58 @@ function editarUsuario(id) {
         return;
     }
 
+    if (!id || id === "undefined") {
+        mostrarToast("Usuario no encontrado", "error");
+        return;
+    }
+
+    const usuario = usuariosCargados.find(user => String(user.id) === String(id));
+
+    if (!usuario) {
+        mostrarToast("Usuario no encontrado", "error");
+        return;
+    }
+
     usuarioEditando = id;
+    document.getElementById("editUsuario").value = usuario.usuario;
+    document.getElementById("editPassword").value = "";
+    document.getElementById("editOrdenLogin").value = usuario.orden_login ?? "";
+    document.getElementById("editRol").value = usuario.rol;
     document.getElementById("modalEditar").style.display = "flex";
 }
 
 function cerrarModalEditar() {
     document.getElementById("modalEditar").style.display = "none";
+    usuarioEditando = null;
 }
 
 async function guardarEdicion() {
+    const usuario = document.getElementById("editUsuario").value.trim();
     const password = document.getElementById("editPassword").value;
+    const ordenLogin = document.getElementById("editOrdenLogin").value;
     const rol = document.getElementById("editRol").value;
+
+    if (!usuario) {
+        mostrarToast("El usuario no puede estar vacio", "error");
+        return;
+    }
 
     const res = await fetch(`/usuarios/${usuarioEditando}`, {
         method: "PUT",
         headers: authHeaders(),
-        body: JSON.stringify({ password, rol })
+        body: JSON.stringify({ usuario, password, rol, orden_login: ordenLogin })
     });
 
     if (await manejarError(res)) return;
+
+    const data = await res.json();
 
     if (res.ok) {
         mostrarToast("Usuario actualizado", "success");
         cerrarModalEditar();
         cargarUsuarios();
     } else {
-        mostrarToast("Error", "error");
+        mostrarToast(data.error || "Error", "error");
     }
 }
 
@@ -1598,6 +1647,9 @@ async function crearUsuario() {
 
     if (res.ok) {
         mostrarToast("Usuario creado", "success");
+        document.getElementById("nuevoUsuario").value = "";
+        document.getElementById("nuevoPassword").value = "";
+        document.getElementById("nuevoRol").value = "vendedora";
         cargarUsuarios();
     } else {
         mostrarToast(data.error || "Error", "error");
@@ -1829,6 +1881,39 @@ function limpiarFiltrosCotizaciones() {
     cargarMisCotizaciones();
 }
 
+async function descargarExcelCotizaciones() {
+    mostrarLoader();
+
+    try {
+        const res = await fetch(`/cotizaciones-excel${filtrosCotizacionesQuery()}`, {
+            headers: authHeaders()
+        });
+
+        if (await manejarError(res)) return;
+
+        if (!res.ok) {
+            mostrarToast("No se pudo generar el Excel", "error");
+            return;
+        }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        const fecha = new Date().toISOString().slice(0, 10);
+
+        link.href = url;
+        link.download = `cotizaciones-${fecha}.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        mostrarToast("No se pudo descargar el Excel", "error");
+    } finally {
+        ocultarLoader();
+    }
+}
+
 function renderSeguimientosHoy(cotizaciones) {
     const div = document.getElementById("seguimientosHoy");
 
@@ -1883,6 +1968,45 @@ async function guardarSeguimientoCotizacion(id, estadoId, seguimientoId) {
     }
 
     mostrarToast("Seguimiento actualizado", "success");
+
+    if (document.getElementById("misCotizaciones")?.style.display !== "none") {
+        cargarMisCotizaciones();
+        return;
+    }
+
+    if (document.getElementById("dni")?.value.trim()) {
+        buscar();
+    }
+}
+
+async function anularCotizacion(id) {
+    if (!esAdmin()) {
+        mostrarToast("No autorizado", "error");
+        return;
+    }
+
+    const confirmado = await mostrarModalConfirmacion({
+        titulo: "¿Anular cotización?",
+        texto: "La cotización seguirá guardada, pero quedará marcada como anulada.",
+        accion: "Anular"
+    });
+
+    if (!confirmado) return;
+
+    const res = await fetch(`/cotizaciones/${id}/anular`, {
+        method: "PUT",
+        headers: authHeaders()
+    });
+
+    if (await manejarError(res)) return;
+
+    if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        mostrarToast(error.error || "No se pudo anular la cotización", "error");
+        return;
+    }
+
+    mostrarToast("Cotización anulada", "success");
 
     if (document.getElementById("misCotizaciones")?.style.display !== "none") {
         cargarMisCotizaciones();

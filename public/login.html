@@ -13,10 +13,13 @@
     <div class="container">
         <h2>Iniciar sesión</h2>
 
-        <input type="text" id="usuario" placeholder="Usuario">
+        <select id="usuarioSelect" onchange="seleccionarUsuarioLogin()">
+            <option value="">Seleccionar asesora</option>
+        </select>
+        <input type="text" id="usuario" placeholder="Usuario manual" autocomplete="username" style="display:none;">
         <div class="password-box">
 
-            <input type="password" id="password" placeholder="Contraseña">
+            <input type="password" id="password" placeholder="Contraseña" autocomplete="current-password">
 
             <span onclick="toggleLoginPassword(this)">
                 👁️
@@ -61,43 +64,93 @@
             document.getElementById("loginMensaje").textContent = mensaje;
         }
 
-        async function loginAnterior() {
-            const usuario = document.getElementById("usuario").value;
-            const password = document.getElementById("password").value;
+        async function cargarUsuariosLogin() {
+            const select = document.getElementById("usuarioSelect");
+            const inputUsuario = document.getElementById("usuario");
 
-            const res = await fetch("/login", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ usuario, password })
-            });
+            inputUsuario.style.display = "none";
+            inputUsuario.value = "";
 
-            console.log("STATUS:", res.status);
-
-            let data;
             try {
-                data = await res.json();
-            } catch {
-                mostrarMensajeLogin("Error en el servidor");
-                return;
-            }
+                const res = await fetch("/login-usuarios");
+                console.log("[login-usuarios] status:", res.status);
 
-            console.log("RESPONSE:", data);
+                if (!res.ok) {
+                    console.error("[login-usuarios] error HTTP:", res.status);
+                    select.innerHTML = [
+                        '<option value="">Seleccionar asesora</option>',
+                        '<option value="__manual__">Escribir usuario manualmente</option>'
+                    ].join("");
+                    return;
+                }
 
-            if (res.ok) {
-                localStorage.setItem("token", data.token);
-                window.location.href = "/app.html";
-            } else {
-                mostrarMensajeLogin("Usuario o contraseÃ±a incorrectos");
+                const usuarios = await res.json();
+                console.log("[login-usuarios] respuesta:", usuarios);
+                console.log("[login-usuarios] cantidad:", Array.isArray(usuarios) ? usuarios.length : 0);
+
+                select.innerHTML = '<option value="">Seleccionar asesora</option>';
+
+                if (!Array.isArray(usuarios) || usuarios.length === 0) {
+                    select.innerHTML = [
+                        '<option value="">Seleccionar asesora</option>',
+                        '<option value="__manual__">Escribir usuario manualmente</option>'
+                    ].join("");
+                    return;
+                }
+
+                usuarios.forEach(user => {
+                    const option = document.createElement("option");
+                    const rolVisible = user.rol === "vendedora" ? "asesora" : user.rol;
+                    option.value = user.usuario;
+                    option.textContent = `${user.usuario} (${rolVisible})`;
+                    select.appendChild(option);
+                });
+
+                const optionManual = document.createElement("option");
+                optionManual.value = "__manual__";
+                optionManual.textContent = "Escribir usuario manualmente";
+                select.appendChild(optionManual);
+            } catch (error) {
+                console.error("[login-usuarios] error fetch:", error);
+                select.innerHTML = [
+                    '<option value="">Seleccionar asesora</option>',
+                    '<option value="__manual__">Escribir usuario manualmente</option>'
+                ].join("");
             }
         }
 
+        function seleccionarUsuarioLogin() {
+            const usuarioSeleccionado = document.getElementById("usuarioSelect").value;
+            const inputUsuario = document.getElementById("usuario");
+
+            if (usuarioSeleccionado === "__manual__") {
+                inputUsuario.value = "";
+                inputUsuario.style.display = "block";
+                inputUsuario.focus();
+                return;
+            }
+
+            if (usuarioSeleccionado) {
+                inputUsuario.value = usuarioSeleccionado;
+                inputUsuario.style.display = "none";
+                return;
+            }
+
+            inputUsuario.value = "";
+            inputUsuario.style.display = "none";
+        }
+
         async function login() {
-            const usuario = document.getElementById("usuario").value;
+            const usuario = document.getElementById("usuario").value.trim();
             const password = document.getElementById("password").value;
 
             mostrarMensajeLogin("");
+
+            if (!usuario || !password) {
+                mostrarMensajeLogin("Completá usuario y contraseña");
+                return;
+            }
+
             mostrarLoader();
 
             try {
@@ -121,10 +174,10 @@
                     localStorage.setItem("token", data.token);
                     window.location.href = "/app.html";
                 } else {
-                    mostrarMensajeLogin("Usuario o contraseÃ±a incorrectos");
+                    mostrarMensajeLogin("Usuario o contraseña incorrectos");
                 }
             } catch {
-                mostrarMensajeLogin("No se pudo iniciar sesiÃ³n");
+                mostrarMensajeLogin("No se pudo iniciar sesión");
             } finally {
                 ocultarLoader();
             }
@@ -146,6 +199,8 @@
                 el.textContent = "👁️";
             }
         }
+        
+        cargarUsuariosLogin();
     </script>
 
 </body>

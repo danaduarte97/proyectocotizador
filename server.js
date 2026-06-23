@@ -3,6 +3,7 @@ const cors = require("cors");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const db = require("./db");
+const ExcelJS = require("exceljs");
 
 const app = express();
 const SECRET = process.env.JWT_SECRET || "secreto_ultra_seguro";
@@ -28,6 +29,50 @@ fs.mkdirSync(uploadsDir, { recursive: true });
 // 👉 MIDDLEWARES
 app.use(cors());
 app.use(express.json());
+
+function dbRunAsync(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.run(sql, params, function (err) {
+            if (err) reject(err);
+            else resolve(this);
+        });
+    });
+}
+
+const usuariosOrdenReady = (async () => {
+    try {
+        if (db.type === "postgres") {
+            await dbRunAsync("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS orden_login INTEGER");
+        }
+    } catch (error) {
+        console.error("[usuarios] no se pudo preparar orden_login:", error.message);
+    }
+})();
+
+const ordenLoginSql = `
+    CASE WHEN orden_login IS NULL THEN 1 ELSE 0 END,
+    orden_login ASC,
+    LOWER(TRIM(usuario)) ASC
+`;
+
+app.get("/login-usuarios", async (req, res) => {
+    await usuariosOrdenReady;
+
+    db.all(
+        `SELECT id, TRIM(usuario) AS usuario, rol FROM usuarios ORDER BY ${ordenLoginSql}`,
+        [],
+        (err, rows) => {
+            if (err) {
+                console.error("[login-usuarios] error db:", err.message);
+                return res.status(500).json({ error: "No se pudieron cargar los usuarios" });
+            }
+
+            console.log("[login-usuarios] usuarios encontrados:", rows.length);
+            res.json(rows);
+        }
+    );
+});
+
 app.use(express.static("public"));
 
 // 👉 BASE DE DATOS
@@ -77,7 +122,8 @@ const ESTADOS_COTIZACION = [
     "Pendiente de pago",
     "No responde",
     "Afiliado",
-    "Perdido"
+    "Perdido",
+    "Anulada"
 ];
 
 const ESTADOS_AFILIADO_LEGACY = [
@@ -178,6 +224,185 @@ function responderCotizacionesConArchivos(res, cotizaciones) {
     );
 }
 
+function escapeXml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+}
+
+function columnName(index) {
+    let name = "";
+    let n = index + 1;
+
+    while (n > 0) {
+        const remainder = (n - 1) % 26;
+        name = String.fromCharCode(65 + remainder) + name;
+        n = Math.floor((n - 1) / 26);
+    }
+
+    return name;
+}
+
+const crcTable = (() => {
+    const table = [];
+
+    for (let i = 0; i < 256; i++) {
+        let c = i;
+
+        for (let j = 0; j < 8; j++) {
+            c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+        }
+
+        table[i] = c >>> 0;
+    }
+
+    return table;
+})();
+
+function crc32(buffer) {
+    let crc = 0xffffffff;
+
+    for (const byte of buffer) {
+        crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+    }
+
+    return (crc ^ 0xffffffff) >>> 0;
+}
+
+function zipDateTime(date = new Date()) {
+    const year = Math.max(date.getFullYear(), 1980);
+    const dosTime =
+        (date.getHours() << 11) |
+        (date.getMinutes() << 5) |
+        Math.floor(date.getSeconds() / 2);
+    const dosDate =
+        ((year - 1980) << 9) |
+        ((date.getMonth() + 1) << 5) |
+        date.getDate();
+
+    return { dosDate, dosTime };
+}
+
+function createZip(files) {
+    const localParts = [];
+    const centralParts = [];
+    let offset = 0;
+    const { dosDate, dosTime } = zipDateTime();
+
+    files.forEach(file => {
+        const name = Buffer.from(file.name, "utf8");
+        const content = Buffer.isBuffer(file.content)
+            ? file.content
+            : Buffer.from(file.content, "utf8");
+        const crc = crc32(content);
+
+        const localHeader = Buffer.alloc(30);
+        localHeader.writeUInt32LE(0x04034b50, 0);
+        localHeader.writeUInt16LE(20, 4);
+        localHeader.writeUInt16LE(0x0800, 6);
+        localHeader.writeUInt16LE(0, 8);
+        localHeader.writeUInt16LE(dosTime, 10);
+        localHeader.writeUInt16LE(dosDate, 12);
+        localHeader.writeUInt32LE(crc, 14);
+        localHeader.writeUInt32LE(content.length, 18);
+        localHeader.writeUInt32LE(content.length, 22);
+        localHeader.writeUInt16LE(name.length, 26);
+
+        localParts.push(localHeader, name, content);
+
+        const centralHeader = Buffer.alloc(46);
+        centralHeader.writeUInt32LE(0x02014b50, 0);
+        centralHeader.writeUInt16LE(20, 4);
+        centralHeader.writeUInt16LE(20, 6);
+        centralHeader.writeUInt16LE(0x0800, 8);
+        centralHeader.writeUInt16LE(0, 10);
+        centralHeader.writeUInt16LE(dosTime, 12);
+        centralHeader.writeUInt16LE(dosDate, 14);
+        centralHeader.writeUInt32LE(crc, 16);
+        centralHeader.writeUInt32LE(content.length, 20);
+        centralHeader.writeUInt32LE(content.length, 24);
+        centralHeader.writeUInt16LE(name.length, 28);
+        centralHeader.writeUInt32LE(offset, 42);
+
+        centralParts.push(centralHeader, name);
+        offset += localHeader.length + name.length + content.length;
+    });
+
+    const centralDirectory = Buffer.concat(centralParts);
+    const centralOffset = offset;
+
+    const end = Buffer.alloc(22);
+    end.writeUInt32LE(0x06054b50, 0);
+    end.writeUInt16LE(files.length, 8);
+    end.writeUInt16LE(files.length, 10);
+    end.writeUInt32LE(centralDirectory.length, 12);
+    end.writeUInt32LE(centralOffset, 16);
+
+    return Buffer.concat([...localParts, centralDirectory, end]);
+}
+
+function createXlsx(headers, rows) {
+    const sheetRows = [headers, ...rows]
+        .map((row, rowIndex) => {
+            const cells = row.map((value, columnIndex) => {
+                const ref = `${columnName(columnIndex)}${rowIndex + 1}`;
+                return `<c r="${ref}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+            }).join("");
+
+            return `<row r="${rowIndex + 1}">${cells}</row>`;
+        })
+        .join("");
+
+    const dimension = `A1:${columnName(headers.length - 1)}${rows.length + 1}`;
+
+    const worksheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<dimension ref="${dimension}"/>
+<sheetData>${sheetRows}</sheetData>
+</worksheet>`;
+
+    return createZip([
+        {
+            name: "[Content_Types].xml",
+            content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>`
+        },
+        {
+            name: "_rels/.rels",
+            content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`
+        },
+        {
+            name: "xl/workbook.xml",
+            content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="Cotizaciones" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`
+        },
+        {
+            name: "xl/_rels/workbook.xml.rels",
+            content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`
+        },
+        {
+            name: "xl/worksheets/sheet1.xml",
+            content: worksheet
+        }
+    ]);
+}
+
 // 🔐 MIDDLEWARE TOKEN
 function verificarToken(req, res, next) {
     const authHeader = req.headers["authorization"];
@@ -234,9 +459,14 @@ db.serialize(() => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         usuario TEXT UNIQUE,
         password TEXT,
-        rol TEXT
+        rol TEXT,
+        orden_login INTEGER
     )
     `);
+    db.run(`
+    ALTER TABLE usuarios
+    ADD COLUMN orden_login INTEGER
+`, () => { });
 
     const passwordHash = bcrypt.hashSync("1234", 10);
 
@@ -319,8 +549,13 @@ WHERE estado IN (${ESTADOS_AFILIADO_LEGACY.map(() => "?").join(", ")})
 
 // 👉 LOGIN
 app.post("/login", (req, res) => {
-    const { usuario, password } = req.body;
-    const loginSql = "SELECT * FROM usuarios WHERE usuario = ?";
+    const { password } = req.body;
+    const usuario = req.body.usuario?.trim();
+    const loginSql = "SELECT * FROM usuarios WHERE TRIM(usuario) = ?";
+
+    if (!usuario || !password) {
+        return res.status(400).json({ success: false });
+    }
 
     console.log("[login] motor base:", db.type);
     console.log("[login] sql:", db.toNativeSql(loginSql));
@@ -365,9 +600,11 @@ app.post("/login", (req, res) => {
                 return res.status(401).json({ success: false });
             }
 
+            const usuarioLimpio = user.usuario.trim();
+
             const token = jwt.sign(
                 {
-                    usuario: user.usuario,
+                    usuario: usuarioLimpio,
                     rol: user.rol
                 },
                 SECRET,
@@ -377,7 +614,7 @@ app.post("/login", (req, res) => {
             res.json({
                 success: true,
                 token,
-                usuario: user.usuario,
+                usuario: usuarioLimpio,
                 rol: user.rol
             });
         }
@@ -947,13 +1184,26 @@ app.post("/crear-usuario", verificarToken, async (req, res) => {
         return res.status(403).json({ error: "No autorizado" });
     }
 
-    const { usuario, password, rol } = req.body;
+    const { password, rol } = req.body;
+    const usuario = req.body.usuario?.trim();
 
     if (!usuario || !password) {
         return res.status(400).json({ error: "Datos incompletos" });
     }
 
     try {
+        const existente = await new Promise((resolve, reject) => {
+            db.get(
+                "SELECT id FROM usuarios WHERE TRIM(usuario) = ?",
+                [usuario],
+                (err, row) => err ? reject(err) : resolve(row)
+            );
+        });
+
+        if (existente) {
+            return res.status(409).json({ error: "Usuario ya existe" });
+        }
+
         const hash = await bcrypt.hash(password, 10);
 
         db.run(
@@ -961,7 +1211,7 @@ app.post("/crear-usuario", verificarToken, async (req, res) => {
             [usuario, hash, rol],
             function (err) {
                 if (err) {
-                    return res.status(500).json({ error: "Usuario ya existe" });
+                    return res.status(409).json({ error: "Usuario ya existe" });
                 }
                 res.json({ success: true });
             }
@@ -973,8 +1223,14 @@ app.post("/crear-usuario", verificarToken, async (req, res) => {
 });
 
 // 👉 LISTAR USUARIOS
-app.get("/usuarios", verificarToken, (req, res) => {
-    db.all("SELECT id, usuario, rol FROM usuarios", [], (err, rows) => {
+app.get("/usuarios", verificarToken, async (req, res) => {
+    if (req.user.rol !== "admin") {
+        return res.status(403).json({ error: "No autorizado" });
+    }
+
+    await usuariosOrdenReady;
+
+    db.all(`SELECT id, TRIM(usuario) AS usuario, rol, orden_login FROM usuarios ORDER BY ${ordenLoginSql}`, [], (err, rows) => {
         if (err) return res.status(500).json(err);
         res.json(rows);
     });
@@ -988,6 +1244,10 @@ app.delete("/usuarios/:id", verificarToken, (req, res) => {
     }
 
     const { id } = req.params;
+
+    if (!/^\d+$/.test(id)) {
+        return res.status(400).json({ error: "Id de usuario invalido" });
+    }
 
     db.get("SELECT * FROM usuarios WHERE id = ?", [id], (err, user) => {
         if (err) return res.status(500).json(err);
@@ -1014,28 +1274,103 @@ app.put("/usuarios/:id", verificarToken, async (req, res) => {
         return res.status(403).json({ error: "No autorizado" });
     }
 
+    await usuariosOrdenReady;
+
     const { id } = req.params;
     const { password, rol } = req.body;
+    const usuario = req.body.usuario?.trim();
+    const tieneOrdenLogin = Object.prototype.hasOwnProperty.call(req.body, "orden_login");
+    const ordenLogin = tieneOrdenLogin && req.body.orden_login !== "" && req.body.orden_login !== null
+        ? Number(req.body.orden_login)
+        : null;
 
-    if (!password || !rol) {
+    if (!/^\d+$/.test(id)) {
+        return res.status(400).json({ error: "Id de usuario invalido" });
+    }
+
+    if (req.body.usuario !== undefined && !usuario) {
+        return res.status(400).json({ error: "El usuario no puede estar vacio" });
+    }
+
+    if (tieneOrdenLogin && ordenLogin !== null && (!Number.isInteger(ordenLogin) || ordenLogin < 1)) {
+        return res.status(400).json({ error: "El orden debe ser un numero positivo" });
+    }
+
+    if (!usuario && !password && !rol && !tieneOrdenLogin) {
         return res.status(400).json({ error: "Datos incompletos" });
     }
 
-    try {
-        const hash = await bcrypt.hash(password, 10);
+    db.get("SELECT * FROM usuarios WHERE id = ?", [id], async (err, user) => {
+        if (err) return res.status(500).json(err);
 
-        db.run(
-            "UPDATE usuarios SET password = ?, rol = ? WHERE id = ?",
-            [hash, rol, id],
-            function (err) {
-                if (err) return res.status(500).json(err);
-                res.json({ success: true });
+        if (!user) {
+            return res.status(404).json({ error: "Usuario no encontrado" });
+        }
+
+        const actualizarUsuario = async () => {
+            try {
+                const campos = [];
+                const valores = [];
+
+                if (usuario && usuario !== user.usuario.trim()) {
+                    campos.push("usuario = ?");
+                    valores.push(usuario);
+                }
+
+                if (password) {
+                    const hash = await bcrypt.hash(password, 10);
+                    campos.push("password = ?");
+                    valores.push(hash);
+                }
+
+                if (rol) {
+                    campos.push("rol = ?");
+                    valores.push(rol);
+                }
+
+                if (tieneOrdenLogin) {
+                    campos.push("orden_login = ?");
+                    valores.push(ordenLogin);
+                }
+
+                if (campos.length === 0) {
+                    return res.json({ success: true });
+                }
+
+                valores.push(id);
+
+                db.run(
+                    `UPDATE usuarios SET ${campos.join(", ")} WHERE id = ?`,
+                    valores,
+                    function (errUpdate) {
+                        if (errUpdate) return res.status(500).json(errUpdate);
+                        res.json({ success: true });
+                    }
+                );
+            } catch (error) {
+                res.status(500).json({ error: "Error al encriptar" });
+            }
+        };
+
+        if (!usuario || usuario === user.usuario.trim()) {
+            await actualizarUsuario();
+            return;
+        }
+
+        db.get(
+            "SELECT id FROM usuarios WHERE TRIM(usuario) = ? AND id <> ?",
+            [usuario, id],
+            async (errDuplicado, duplicado) => {
+                if (errDuplicado) return res.status(500).json(errDuplicado);
+
+                if (duplicado) {
+                    return res.status(409).json({ error: "Ya existe otro usuario con ese nombre" });
+                }
+
+                await actualizarUsuario();
             }
         );
-
-    } catch (error) {
-        res.status(500).json({ error: "Error al encriptar" });
-    }
+    });
 });
 
 // 👉 SERVIDOR
@@ -1105,6 +1440,10 @@ app.put("/cotizaciones/:id/seguimiento", verificarToken, (req, res) => {
         return res.status(400).json({ error: "Estado inválido" });
     }
 
+    if (estado === "Anulada" && req.user.rol !== "admin") {
+        return res.status(403).json({ error: "Solo admin puede anular cotizaciones" });
+    }
+
     if (
         fechaSeguimiento &&
         !/^\d{4}-\d{2}-\d{2}$/.test(fechaSeguimiento)
@@ -1146,7 +1485,37 @@ app.put("/cotizaciones/:id/seguimiento", verificarToken, (req, res) => {
     );
 });
 
-app.get("/mis-cotizaciones", verificarToken, (req, res) => {
+app.put("/cotizaciones/:id/anular", verificarToken, (req, res) => {
+    if (req.user.rol !== "admin") {
+        return res.status(403).json({ error: "No autorizado" });
+    }
+
+    const { id } = req.params;
+
+    if (!/^\d+$/.test(id)) {
+        return res.status(400).json({ error: "Id de cotizacion invalido" });
+    }
+
+    db.get("SELECT id FROM cotizaciones WHERE id = ?", [id], (err, cotizacion) => {
+        if (err) return res.status(500).json(err);
+
+        if (!cotizacion) {
+            return res.status(404).json({ error: "Cotizacion no encontrada" });
+        }
+
+        db.run(
+            "UPDATE cotizaciones SET estado = ? WHERE id = ?",
+            ["Anulada", id],
+            function (errorUpdate) {
+                if (errorUpdate) return res.status(500).json(errorUpdate);
+
+                res.json({ success: true });
+            }
+        );
+    });
+});
+
+function consultarCotizacionesFiltradas(req, callback) {
     const {
         estado,
         asesora,
@@ -1178,24 +1547,18 @@ app.get("/mis-cotizaciones", verificarToken, (req, res) => {
             parametros.push(asesora);
         }
 
-        db.all(
+        return db.all(
             `
             ${SELECT_COTIZACIONES}
             ${condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : ""}
             ORDER BY fecha DESC
             `,
             parametros,
-            (err, rows) => {
-                if (err) return res.status(500).json(err);
-
-                responderCotizacionesConArchivos(res, rows);
-            }
+            callback
         );
-
-        return;
     }
 
-    db.all(
+    return db.all(
         `
         ${SELECT_COTIZACIONES}
         WHERE vendedora = ?
@@ -1203,12 +1566,166 @@ app.get("/mis-cotizaciones", verificarToken, (req, res) => {
         ORDER BY fecha DESC
         `,
         [req.user.usuario, ...parametros],
-        (err, rows) => {
-            if (err) return res.status(500).json(err);
-
-            responderCotizacionesConArchivos(res, rows);
-        }
+        callback
     );
+}
+
+app.get("/mis-cotizaciones", verificarToken, (req, res) => {
+    consultarCotizacionesFiltradas(req, (err, rows) => {
+        if (err) return res.status(500).json(err);
+
+        responderCotizacionesConArchivos(res, rows);
+    });
+});
+
+app.get("/cotizaciones-excel", verificarToken, (req, res) => {
+    consultarCotizacionesFiltradas(req, (err, rows) => {
+        if (err) {
+            res.status(500).json(err);
+            return;
+        }
+
+        (async () => {
+            const cotizaciones = normalizarCotizaciones(rows);
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet("Cotizaciones");
+            const headers = [
+                "Fecha",
+                "DNI",
+                "Nombre",
+                "Telefono",
+                "Plan",
+                "Cobertura",
+                "Valor",
+                "Bonificacion comercial",
+                "Bonificacion por aportes",
+                "Modalidad",
+                "Vigencia",
+                "Referido",
+                "Congelamiento",
+                "Estado",
+                "Fecha seguimiento",
+                "Asesora",
+                "Comentarios"
+            ];
+            const estadoFill = {
+                Nuevo: "DDEBFF",
+                Contactado: "E8F3FF",
+                "Pendiente de pago": "FFF3CD",
+                "No responde": "F8D7DA",
+                Afiliado: "D4EDDA",
+                Perdido: "E2E3E5",
+                Anulada: "F5C6CB"
+            };
+
+            workbook.creator = "Asismed";
+            workbook.created = new Date();
+
+            worksheet.mergeCells(1, 1, 1, headers.length);
+            const title = worksheet.getCell("A1");
+            title.value = "Cotizaciones Asismed";
+            title.font = { bold: true, size: 18, color: { argb: "FFFFFFFF" } };
+            title.fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FF1B4F72" }
+            };
+            title.alignment = { horizontal: "center", vertical: "middle" };
+            worksheet.getRow(1).height = 28;
+
+            worksheet.addRow(headers);
+            const headerRow = worksheet.getRow(2);
+            headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+            headerRow.alignment = { horizontal: "center", vertical: "middle" };
+            headerRow.eachCell(cell => {
+                cell.fill = {
+                    type: "pattern",
+                    pattern: "solid",
+                    fgColor: { argb: "FF2E86C1" }
+                };
+                cell.border = {
+                    top: { style: "thin" },
+                    left: { style: "thin" },
+                    bottom: { style: "thin" },
+                    right: { style: "thin" }
+                };
+            });
+
+            cotizaciones.forEach(cotizacion => {
+                const row = worksheet.addRow([
+                    cotizacion.fecha || "",
+                    cotizacion.dni || "",
+                    cotizacion.nombre || "",
+                    cotizacion.celular || "",
+                    cotizacion.plan || "",
+                    cotizacion.tipo_cobertura || "",
+                    cotizacion.valor || "",
+                    cotizacion.bonificacion || "",
+                    cotizacion.bonificacion_aportes || "",
+                    cotizacion.modalidad || "",
+                    cotizacion.vigencia || "",
+                    cotizacion.referido || "",
+                    cotizacion.congelamiento || "",
+                    cotizacion.estado || "",
+                    cotizacion.fecha_seguimiento || "",
+                    cotizacion.vendedora || "",
+                    cotizacion.comentarios || ""
+                ]);
+                const fillColor = estadoFill[cotizacion.estado];
+
+                row.eachCell(cell => {
+                    cell.border = {
+                        top: { style: "thin", color: { argb: "FFD9E2EC" } },
+                        left: { style: "thin", color: { argb: "FFD9E2EC" } },
+                        bottom: { style: "thin", color: { argb: "FFD9E2EC" } },
+                        right: { style: "thin", color: { argb: "FFD9E2EC" } }
+                    };
+                    cell.alignment = { vertical: "top", wrapText: true };
+                });
+
+                if (fillColor) {
+                    row.getCell(14).fill = {
+                        type: "pattern",
+                        pattern: "solid",
+                        fgColor: { argb: `FF${fillColor}` }
+                    };
+                }
+            });
+
+            worksheet.autoFilter = {
+                from: { row: 2, column: 1 },
+                to: { row: Math.max(2, worksheet.rowCount), column: headers.length }
+            };
+            worksheet.views = [{ state: "frozen", ySplit: 2 }];
+
+            worksheet.columns.forEach((column, index) => {
+                let maxLength = headers[index]?.length || 10;
+
+                column.eachCell({ includeEmpty: true }, cell => {
+                    const value = cell.value ? String(cell.value) : "";
+                    maxLength = Math.max(maxLength, value.length);
+                });
+
+                column.width = Math.min(Math.max(maxLength + 2, 12), 36);
+            });
+
+            const fecha = new Date().toISOString().slice(0, 10);
+            const buffer = await workbook.xlsx.writeBuffer();
+
+            res.setHeader(
+                "Content-Type",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            );
+            res.setHeader(
+                "Content-Disposition",
+                `attachment; filename="cotizaciones-${fecha}.xlsx"`
+            );
+            res.send(Buffer.from(buffer));
+        })().catch(error => {
+            console.error("[cotizaciones-excel] error:", error.message);
+            res.status(500).json({ error: "No se pudo generar el Excel" });
+        });
+    });
 });
 
 const PORT = process.env.PORT || 3000;

@@ -81,6 +81,30 @@ select:focus {
   outline: none;
 }
 
+#usuarioSelect {
+  appearance: none;
+  background-color: #f8fbff;
+  background-image: linear-gradient(45deg, transparent 50%, #1b4f72 50%), linear-gradient(135deg, #1b4f72 50%, transparent 50%);
+  background-position: calc(100% - 22px) 52%, calc(100% - 16px) 52%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  border-color: rgba(46, 134, 193, 0.28);
+  box-shadow: 0 8px 18px rgba(27, 79, 114, 0.08);
+  color: #2c3e50;
+  cursor: pointer;
+  font-weight: 600;
+  padding-right: 44px;
+}
+
+#usuarioSelect:hover {
+  border-color: rgba(46, 134, 193, 0.55);
+  background-color: #ffffff;
+}
+
+#usuarioSelect:focus {
+  background-color: #ffffff;
+}
+
 /* BOTONES */
 button {
   width: 100%;
@@ -130,6 +154,13 @@ button:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
+.orden-login {
+  display: block;
+  margin-top: 6px;
+  color: #6c7a89;
+  font-size: 12px;
+}
+
 /* BADGES */
 .badge {
   padding: 4px 10px;
@@ -148,13 +179,18 @@ button:hover {
 /* TOAST */
 .toast {
   position: fixed;
-  top: 20px;
+  top: 72px;
   right: 20px;
+  z-index: 99999;
+  max-width: min(420px, 100vw - 40px);
   padding: 12px 20px;
   border-radius: 10px;
   color: white;
+  line-height: 1.35;
+  white-space: normal;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
   opacity: 0;
-  transform: translateY(-20px);
+  transform: translateY(-8px);
   transition: 0.3s;
 }
 .toast.show {
@@ -756,6 +792,30 @@ button:hover {
   margin-top: 10px;
   background: #f8fbff;
   border-left: 4px solid #2e86c1;
+}
+
+.cotizacion-anulada {
+  border-left: 5px solid #c0392b !important;
+  background: #fff6f6;
+}
+
+.cotizacion-anulada .cotizacion-resumen {
+  opacity: 0.9;
+}
+
+.badge-anulada {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #f5c6cb;
+  color: #7b1f29;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.btn-anular {
+  background: linear-gradient(135deg, #c0392b, #7b1f29);
 }
 
 .topbar {
@@ -1463,7 +1523,7 @@ button:hover {
 
 .password-box input {
   width: 100%;
-  padding-right: 45px;
+  padding-right: 80px;
 }
 
 .password-box span {
@@ -1474,6 +1534,15 @@ button:hover {
   cursor: pointer;
   font-size: 18px;
   user-select: none;
+}
+
+.login-mensaje {
+  min-height: 20px;
+  margin: 10px 0 0;
+  color: #e74c3c;
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .imc-row {

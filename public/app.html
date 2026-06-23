@@ -528,6 +528,10 @@
                         <button type="button" onclick="limpiarFiltrosCotizaciones()">
                             Limpiar filtros
                         </button>
+
+                        <button type="button" onclick="descargarExcelCotizaciones()">
+                            Descargar Excel
+                        </button>
                     </div>
 
                     <div id="seguimientosHoy" class="seguimientos-hoy no-pdf"></div>
@@ -569,7 +573,9 @@
         <div class="modal-content">
             <h3>Editar usuario</h3>
 
+            <input type="text" id="editUsuario" placeholder="Usuario">
             <input type="password" id="editPassword" placeholder="Nueva contraseña">
+            <input type="number" id="editOrdenLogin" placeholder="Orden en login" min="1" step="1">
 
             <select id="editRol">
                 <option value="vendedora">Asesora Call</option>
