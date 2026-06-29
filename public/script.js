@@ -35,6 +35,15 @@ function authHeaders(extra = {}) {
     };
 }
 
+function authOnlyHeaders(extra = {}) {
+    const token = localStorage.getItem("token");
+
+    return {
+        "Authorization": `Bearer ${token}`,
+        ...extra
+    };
+}
+
 // SI NO HAY TOKEN, REDIRIGE A LOGIN
 const token = localStorage.getItem("token");
 if (!token) {
@@ -198,6 +207,35 @@ function formatearFecha(fecha) {
     }) + ` ${hora}`;
 }
 
+function formatearFechaArgentina(fecha) {
+    if (!fecha) return "-";
+
+    const valor = String(fecha).trim();
+
+    const fechaArgentina = valor.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (fechaArgentina) return valor;
+
+    const fechaIso = valor.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (fechaIso) {
+        return `${fechaIso[3]}/${fechaIso[2]}/${fechaIso[1]}`;
+    }
+
+    const fechaConBarras = valor.match(/^(\d{4})\/(\d{2})\/(\d{2})/);
+    if (fechaConBarras) {
+        return `${fechaConBarras[3]}/${fechaConBarras[2]}/${fechaConBarras[1]}`;
+    }
+
+    const fechaParseada = new Date(valor);
+    if (Number.isNaN(fechaParseada.getTime())) return valor;
+
+    return fechaParseada.toLocaleDateString("es-AR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        timeZone: "America/Argentina/Buenos_Aires"
+    });
+}
+
 function alternarDetalleCotizacion(id, boton) {
     const detalle = document.getElementById(`detalle-cotizacion-${id}`);
 
@@ -285,6 +323,95 @@ function fechaActualInput() {
     });
 }
 
+function obtenerOpcionesCotizacion(cotizacion) {
+    if (Array.isArray(cotizacion.opciones) && cotizacion.opciones.length) {
+        return cotizacion.opciones.slice(0, 2);
+    }
+
+    return [
+        {
+            numero_opcion: 1,
+            plan: cotizacion.plan || "",
+            tipo_cobertura: cotizacion.tipo_cobertura || "Individual",
+            valor: cotizacion.valor || "",
+            bonificacion: cotizacion.bonificacion || "0",
+            bonificacion_aportes: cotizacion.bonificacion_aportes || "0"
+        }
+    ];
+}
+
+function totalOpcionCotizacion(opcion) {
+    return Number(opcion.valor || 0)
+        - Number(opcion.bonificacion || 0)
+        - Number(opcion.bonificacion_aportes || 0);
+}
+
+function renderTablaPdfOpcion(opcion) {
+    return `
+        <div class="pdf-opcion" data-pdf-opcion="${opcion.numero_opcion}">
+            <table class="pdf-tabla">
+                <thead>
+                    <tr>
+                        <th>Detalle</th>
+                        <th>Informaci&oacute;n</th>
+                        <th>Importe</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Plan</td>
+                        <td>${opcion.plan || "-"}</td>
+                        <td></td>
+                    </tr>
+                    <tr>
+                        <td>Tipo de cobertura</td>
+                        <td>${opcion.tipo_cobertura || "Individual"}</td>
+                        <td></td>
+                    </tr>
+                    <tr>
+                        <td>Valor</td>
+                        <td></td>
+                        <td>$ ${Number(opcion.valor || 0).toLocaleString("es-AR")}</td>
+                    </tr>
+                    <tr>
+                        <td>Bonificaci&oacute;n comercial</td>
+                        <td></td>
+                        <td>- $ ${Number(opcion.bonificacion || 0).toLocaleString("es-AR")}</td>
+                    </tr>
+                    <tr>
+                        <td>Bonificaci&oacute;n por aportes</td>
+                        <td></td>
+                        <td>- $ ${Number(opcion.bonificacion_aportes || 0).toLocaleString("es-AR")}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="pdf-total">
+                <span>Total a pagar</span>
+                <strong>
+                    $ ${totalOpcionCotizacion(opcion).toLocaleString("es-AR")}
+                </strong>
+            </div>
+        </div>
+    `;
+}
+
+function renderDetalleOpcion(opcion) {
+    return `
+        <div class="cotizacion-opcion-detalle">
+            <h4>Opci&oacute;n ${opcion.numero_opcion}</h4>
+            <div class="cotizacion-detalle-grid">
+                <p><b>Plan:</b> ${opcion.plan || "-"}</p>
+                <p><b>Cobertura:</b> ${opcion.tipo_cobertura || "Individual"}</p>
+                <p><b>Valor:</b> $${opcion.valor || 0}</p>
+                <p><b>Bonificacion comercial:</b> $${opcion.bonificacion || 0}</p>
+                <p><b>Bonificacion por aportes:</b> $${opcion.bonificacion_aportes || 0}</p>
+                <p><b>Total:</b> $${totalOpcionCotizacion(opcion).toLocaleString("es-AR")}</p>
+            </div>
+        </div>
+    `;
+}
+
 function renderTarjetaCotizacion(c, opciones = {}) {
     const sufijo = opciones.sufijo || c.id;
     const cardId = opciones.cardId || `card-${c.id}`;
@@ -302,6 +429,9 @@ function renderTarjetaCotizacion(c, opciones = {}) {
         .replace(/\\/g, "\\\\")
         .replace(/`/g, "\\`")
         .replace(/\$/g, "\\$");
+    const dniVisible = mostrarDniCotizacion(c.dni);
+    const idVisible = formatearCotizacionId(c.id);
+    const opcionesPlan = obtenerOpcionesCotizacion(c);
     const fechaSeguimientoResumen = fechaSeguimiento
         ? `<p><b>Seguimiento:</b> ${fechaSeguimiento}</p>`
         : "";
@@ -320,86 +450,35 @@ function renderTarjetaCotizacion(c, opciones = {}) {
 
                 <div class="pdf-contenido">
                     <div class="pdf-titulo">
-                        <p class="pdf-eyebrow">COTIZACION</p>
+                        <p class="pdf-eyebrow">COTIZACI&Oacute;N</p>
+                        <p class="pdf-identificador">Cotizaci&oacute;n N&deg; ${idVisible}</p>
                         <h1>${c.nombre || ""}</h1>
                         <p class="pdf-subtitulo">
-                            DNI ${c.dni} &nbsp;|&nbsp; Tel. ${c.celular || "-"}
+                            DNI ${dniVisible} &nbsp;|&nbsp; Tel&eacute;fono ${c.celular || "-"}
                         </p>
                     </div>
 
-                    <table class="pdf-tabla">
-                        <thead>
-                            <tr>
-                                <th>Detalle</th>
-                                <th>Informacion</th>
-                                <th>Importe</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>Plan</td>
-                                <td>${c.plan || "-"}</td>
-                                <td></td>
-                            </tr>
-                            <tr>
-                                <td>Cobertura</td>
-                                <td>${c.tipo_cobertura || "Individual"}</td>
-                                <td></td>
-                            </tr>
-                            <tr>
-                                <td>Modalidad</td>
-                                <td>${c.modalidad || "Particular"}</td>
-                                <td></td>
-                            </tr>
-                            <tr>
-                                <td>Valor del plan</td>
-                                <td></td>
-                                <td>$ ${Number(c.valor || 0).toLocaleString("es-AR")}</td>
-                            </tr>
-                            <tr>
-                                <td>Bonificacion comercial</td>
-                                <td></td>
-                                <td>- $ ${Number(c.bonificacion || 0).toLocaleString("es-AR")}</td>
-                            </tr>
-                            <tr>
-                                <td>Bonificacion por aportes</td>
-                                <td></td>
-                                <td>- $ ${Number(c.bonificacion_aportes || 0).toLocaleString("es-AR")}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-
-                    <div class="pdf-total">
-                        <span>Total a pagar</span>
-                        <strong>
-                            $ ${(
-            Number(c.valor || 0)
-            - Number(c.bonificacion || 0)
-            - Number(c.bonificacion_aportes || 0)
-        ).toLocaleString("es-AR")}
-                        </strong>
-                    </div>
+                    ${opcionesPlan.map(renderTablaPdfOpcion).join("")}
 
                     <div class="pdf-info-adicional">
+                        <p><b>Modalidad:</b> ${c.modalidad || "Particular"}</p>
                         <p><b>Referido:</b> ${c.referido || "No"}</p>
                         <p><b>Congelamiento:</b> ${c.congelamiento || "Sin congelamiento"}</p>
                     </div>
 
                     <div class="pie-pdf">
-                        <p><b>Fecha:</b> ${new Date(c.fecha).toLocaleDateString("es-AR")}</p>
-                        <p><b>Vigencia:</b> ${c.vigencia || "-"}</p>
+                        <p><b>Fecha de emisi&oacute;n:</b> ${formatearFechaArgentina(c.fecha)}</p>
+                        <p><b>Vigencia de la cotizaci&oacute;n:</b> ${formatearFechaArgentina(c.vigencia)}</p>
                         <p><b>Asesora comercial:</b> ${c.vendedora}</p>
-                        <p><b>Contacto Asismed:</b> WhatsApp 11 3943-8158</p>
+                        <p><b>Contacto Asismed:</b> WhatsApp 1138687033</p>
                     </div>
 
                     <p class="pdf-aclaracion">
-                        La presente cotizacion queda sujeta a variaciones conforme a
+                        La presente cotizaci&oacute;n queda sujeta a variaciones conforme a
                         actualizaciones, aumentos o ajustes autorizados por Asismed, o a
                         modificaciones de los datos personales informados. Los cambios
-                        correspondientes seran aplicados en el mes que se indique.
+                        correspondientes ser&aacute;n aplicados en el mes que se indique.
                     </p>
-
-                    <p class="pdf-identificador">Cotizacion N. ${c.id}</p>
                 </div>
             </div>
 
@@ -409,7 +488,8 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                         ${formatearFecha(c.fecha)}
                     </p>
                     <div class="cotizacion-resumen-grid">
-                        <p><b>DNI:</b> ${c.dni}</p>
+                        <p><b>Cotizaci&oacute;n N&deg;:</b> ${idVisible}</p>
+                        <p><b>DNI:</b> ${dniVisible}</p>
                         <p><b>Telefono:</b> ${c.celular || "-"}</p>
                         <p><b>Asesora:</b> ${c.vendedora}</p>
                         <p><b>Estado:</b> ${estadoActual}</p>
@@ -436,16 +516,16 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                 hidden
             >
                 <div class="cotizacion-detalle-grid">
+                    <p><b>Cotizaci&oacute;n N&deg;:</b> ${idVisible}</p>
                     <p><b>Nombre:</b> ${c.nombre || "-"}</p>
-                    <p><b>Plan:</b> ${c.plan || "-"}</p>
-                    <p><b>Cobertura:</b> ${c.tipo_cobertura || "Individual"}</p>
-                    <p><b>Valor:</b> $${c.valor || 0}</p>
-                    <p><b>Bonificacion comercial:</b> $${c.bonificacion || 0}</p>
-                    <p><b>Bonificacion por aportes:</b> $${c.bonificacion_aportes || 0}</p>
                     <p><b>Modalidad:</b> ${c.modalidad || "Particular"}</p>
                     <p><b>Valida hasta:</b> ${c.vigencia || "-"}</p>
                     <p><b>Referido:</b> ${c.referido || "No"}</p>
                     <p><b>Congelamiento:</b> ${c.congelamiento || "Sin congelamiento"}</p>
+                </div>
+
+                <div class="cotizacion-opciones">
+                    ${opcionesPlan.map(renderDetalleOpcion).join("")}
                 </div>
 
                 <div class="seguimiento-controles">
@@ -522,17 +602,19 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                         </button>
                     ` : ""}
 
-                    <button
-                        onclick="descargarPDF(${c.id})"
-                        style="display:flex;align-items:center;gap:8px;"
-                    >
-                        <img
-                            class="icono-menu"
-                            src="img/imgicon-pdf.png"
-                            alt=""
+                    ${opcionesPlan.map(opcion => `
+                        <button
+                            onclick="descargarPDF(${c.id}, ${opcion.numero_opcion})"
+                            style="display:flex;align-items:center;gap:8px;"
                         >
-                        <span>Descargar PDF</span>
-                    </button>
+                            <img
+                                class="icono-menu"
+                                src="img/imgicon-pdf.png"
+                                alt=""
+                            >
+                            <span>Descargar PDF opci&oacute;n ${opcion.numero_opcion}</span>
+                        </button>
+                    `).join("")}
 
                     ${esAdmin() && !estadoAnulado ? `
                         <button
@@ -550,6 +632,111 @@ function renderTarjetaCotizacion(c, opciones = {}) {
     `;
 }
 let busquedaCotizacionActual = 0;
+
+function normalizarTelefono(valor) {
+    let numero = String(valor || "").replace(/\D/g, "");
+
+    if (!numero) return "";
+
+    if (numero.startsWith("549")) {
+        numero = numero.slice(3);
+    } else if (numero.startsWith("54")) {
+        numero = numero.slice(2);
+    }
+
+    while (numero.startsWith("0")) {
+        numero = numero.slice(1);
+    }
+
+    for (let posicion = 2; posicion <= 4; posicion++) {
+        if (numero.slice(posicion, posicion + 2) === "15") {
+            numero = numero.slice(0, posicion) + numero.slice(posicion + 2);
+            break;
+        }
+    }
+
+    return numero;
+}
+
+function mostrarDniCotizacion(dni) {
+    return String(dni || "").trim() || "Sin DNI";
+}
+
+function formatearCotizacionId(id) {
+    return String(id || "").padStart(6, "0");
+}
+
+function opcionPlan2Visible() {
+    const bloque = document.getElementById("opcionPlan2Block");
+    return Boolean(bloque && !bloque.hidden);
+}
+
+function mostrarOpcionPlan2() {
+    const bloque = document.getElementById("opcionPlan2Block");
+    const btnAgregar = document.getElementById("btnAgregarOpcionPlan");
+    const btnQuitar = document.getElementById("btnQuitarOpcionPlan");
+
+    if (bloque) bloque.hidden = false;
+    if (btnAgregar) btnAgregar.hidden = true;
+    if (btnQuitar) btnQuitar.hidden = false;
+
+    actualizarTotalCotizacion();
+}
+
+function ocultarOpcionPlan2() {
+    const bloque = document.getElementById("opcionPlan2Block");
+    const btnAgregar = document.getElementById("btnAgregarOpcionPlan");
+    const btnQuitar = document.getElementById("btnQuitarOpcionPlan");
+
+    if (bloque) bloque.hidden = true;
+    if (btnAgregar) btnAgregar.hidden = false;
+    if (btnQuitar) btnQuitar.hidden = true;
+
+    ["plan2", "valor2", "bonificacion2", "bonificacionAportes2"].forEach(id =>
+        setValorCampo(id)
+    );
+    setIndiceCampo("tipoCobertura2");
+    actualizarTotalCotizacion();
+}
+
+function obtenerOpcionesFormulario() {
+    const opciones = [
+        {
+            numero_opcion: 1,
+            plan: document.getElementById("plan").value,
+            tipo_cobertura: document.getElementById("tipoCobertura").value,
+            valor: document.getElementById("valor").value,
+            bonificacion: document.getElementById("bonificacion").value || 0,
+            bonificacion_aportes:
+                document.getElementById("bonificacionAportes").value || 0
+        }
+    ];
+
+    if (opcionPlan2Visible()) {
+        opciones.push({
+            numero_opcion: 2,
+            plan: document.getElementById("plan2").value,
+            tipo_cobertura: document.getElementById("tipoCobertura2").value,
+            valor: document.getElementById("valor2").value,
+            bonificacion: document.getElementById("bonificacion2").value || 0,
+            bonificacion_aportes:
+                document.getElementById("bonificacionAportes2").value || 0
+        });
+    }
+
+    return opciones;
+}
+
+function obtenerDniCotizacionValor() {
+    const dniCotizacion = document.getElementById("dniCotizacion")?.value.trim();
+    const terminoBusqueda = document.getElementById("dni")?.value.trim();
+
+    if (dniCotizacion) return dniCotizacion;
+
+    return /^\d{7,8}$/.test(terminoBusqueda || "")
+        ? terminoBusqueda
+        : "";
+}
 
 function limpiarResultadosBusqueda() {
     const div = obtenerContenedorResultadosBusqueda();
@@ -594,17 +781,23 @@ function limpiarFormularioCotizacion() {
         "nombre",
         "celular",
         "valor",
+        "valor2",
         "bonificacion",
+        "bonificacion2",
         "bonificacionAportes",
+        "bonificacionAportes2",
         "vigencia",
         "congelamiento",
         "comentarios"
     ].forEach(id => setValorCampo(id));
 
     setIndiceCampo("plan");
+    setIndiceCampo("plan2");
     setIndiceCampo("tipoCobertura");
+    setIndiceCampo("tipoCobertura2");
     setIndiceCampo("modalidad");
     setCheckedCampo("referido");
+    ocultarOpcionPlan2();
 
     const adjuntoInput = document.getElementById("adjuntoCotizacion");
     if (adjuntoInput) {
@@ -622,7 +815,7 @@ function limpiarFormularioCotizacion() {
 function completarFormularioCotizacion(cotizacion, termino) {
     setValorCampo("nombre", cotizacion.nombre || "");
     setValorCampo("celular", cotizacion.celular || "");
-    setValorCampo("dniCotizacion", cotizacion.dni || termino);
+    setValorCampo("dniCotizacion", cotizacion.dni || "");
 }
 
 async function buscarAnterior() {
@@ -667,7 +860,7 @@ async function buscarAnterior() {
     document.getElementById("celular").value = data[0].celular || "";
     const dniCotizacion = document.getElementById("dniCotizacion");
     if (dniCotizacion) {
-        dniCotizacion.value = data[0].dni || termino;
+        dniCotizacion.value = data[0].dni || "";
     }
 
     div.innerHTML = data.map(c => renderTarjetaCotizacion(c)).join("");
@@ -681,6 +874,7 @@ async function buscarAnterior() {
 async function buscar() {
     const busquedaId = ++busquedaCotizacionActual;
     const termino = document.getElementById("dni").value.trim();
+    const token = localStorage.getItem("token");
 
     limpiarResultadosBusqueda();
     limpiarFormularioCotizacion();
@@ -693,8 +887,27 @@ async function buscar() {
     mostrarLoader();
 
     try {
+        console.log("[buscar frontend]", {
+            termino,
+            terminoNormalizado: normalizarTelefono(termino),
+            tokenExiste: Boolean(token),
+            endpoint: `/buscar/${encodeURIComponent(termino)}`
+        });
+
+        if (!token) {
+            mostrarToast("Sesión expirada o no autorizada", "error");
+            logout();
+            return;
+        }
+
         const res = await fetch(`/buscar/${encodeURIComponent(termino)}`, {
-            headers: authHeaders()
+            headers: authOnlyHeaders()
+        });
+
+        console.log("[buscar frontend respuesta]", {
+            termino,
+            status: res.status,
+            ok: res.ok
         });
 
         if (busquedaId !== busquedaCotizacionActual) return;
@@ -705,6 +918,18 @@ async function buscar() {
 
         if (busquedaId !== busquedaCotizacionActual) return;
 
+        console.log("[buscar frontend datos]", {
+            termino,
+            cantidadAntesDeRenderizar: Array.isArray(data) ? data.length : null,
+            primeros: Array.isArray(data)
+                ? data.slice(0, 5).map(c => ({
+                    id: c.id,
+                    dni: c.dni,
+                    celular: c.celular
+                }))
+                : data
+        });
+
         const div = obtenerContenedorResultadosBusqueda();
 
         if (!div) return;
@@ -713,12 +938,23 @@ async function buscar() {
 
         if (data.length === 0) {
             div.innerHTML = "<p>No hay cotizaciones</p>";
+            console.log("[buscar frontend render]", {
+                termino,
+                cantidadRenderizada: 0,
+                idsRenderizados: []
+            });
             return;
         }
 
         completarFormularioCotizacion(data[0], termino);
 
         div.innerHTML = data.map(c => renderTarjetaCotizacion(c)).join("");
+
+        console.log("[buscar frontend render]", {
+            termino,
+            cantidadRenderizada: div.querySelectorAll(".card").length,
+            idsRenderizados: data.map(c => c.id)
+        });
 
         data.forEach(c => {
             cargarArchivos(c.id);
@@ -1152,7 +1388,7 @@ async function agregarComentario(
 }
 
 
-async function descargarPDF(id) {
+async function descargarPDF(id, numeroOpcion = 1) {
 
     const card = document.getElementById(`card-${id}`);
 
@@ -1165,9 +1401,17 @@ async function descargarPDF(id) {
     const ocultos = card.querySelectorAll(".no-pdf");
     // mostrar elementos solo PDF
     const soloPdf = card.querySelectorAll(".solo-pdf");
+    const opcionesPdf = card.querySelectorAll(".pdf-opcion");
 
     soloPdf.forEach(el => {
         el.style.display = "block";
+    });
+
+    opcionesPdf.forEach(el => {
+        el.dataset.display = el.style.display;
+        el.style.display = Number(el.dataset.pdfOpcion) === Number(numeroOpcion)
+            ? "block"
+            : "none";
     });
 
     ocultos.forEach(el => {
@@ -1211,7 +1455,7 @@ async function descargarPDF(id) {
         pdfHeight
     );
 
-    pdf.save(`cotizacion-${id}.pdf`);
+    pdf.save(`cotizacion-${id}-opcion-${numeroOpcion}.pdf`);
 
     // restaurar card
     card.id = `card-${id}`;
@@ -1221,6 +1465,9 @@ async function descargarPDF(id) {
     });
     soloPdf.forEach(el => {
         el.style.display = "none";
+    });
+    opcionesPdf.forEach(el => {
+        el.style.display = el.dataset.display || "";
     });
     card.style.opacity = "";
 
@@ -1233,14 +1480,16 @@ async function descargarPDF(id) {
 async function agregarAnterior() {
     const adjuntoInput = document.getElementById("adjuntoCotizacion");
     const adjuntos = adjuntoInput ? [...adjuntoInput.files] : [];
-    const dniCotizacionValor =
-        document.getElementById("dniCotizacion").value ||
-        document.getElementById("dni").value;
+    const dniCotizacionValor = obtenerDniCotizacionValor();
+    const celularValor = normalizarTelefono(
+        document.getElementById("celular").value
+    );
     const formData = new FormData();
 
     formData.append("dni", dniCotizacionValor);
     formData.append("nombre", document.getElementById("nombre").value);
-    formData.append("celular", document.getElementById("celular").value);
+    formData.append("celular", celularValor);
+    formData.append("opciones", JSON.stringify(obtenerOpcionesFormulario()));
     formData.append("plan", document.getElementById("plan").value);
     formData.append(
         "tipo_cobertura",
@@ -1288,21 +1537,27 @@ async function agregarAnterior() {
         document.getElementById("dniCotizacion").value = "";
         document.getElementById("celular").value = "";
         document.getElementById("plan").value = "";
+        document.getElementById("plan2").value = "";
         document.getElementById("valor").value = "";
+        document.getElementById("valor2").value = "";
         document.getElementById("comentarios").value = "";
         document.getElementById("tipoCobertura").selectedIndex = 0;
+        document.getElementById("tipoCobertura2").selectedIndex = 0;
         document.getElementById("modalidad").selectedIndex = 0;
         document.getElementById("referido").checked = false;
         document.getElementById("congelamiento").value = "";
         document.getElementById("bonificacion").value = "";
+        document.getElementById("bonificacion2").value = "";
         document.getElementById("bonificacionAportes").value = "";
+        document.getElementById("bonificacionAportes2").value = "";
         document.getElementById("vigencia").value = "";
+        ocultarOpcionPlan2();
 
         if (adjuntoInput) {
             adjuntoInput.value = "";
         }
 
-        document.getElementById("dni").value = dniCotizacionValor;
+        document.getElementById("dni").value = dniCotizacionValor || celularValor;
         previsualizarAdjuntosCotizacion();
         actualizarTotalCotizacion();
 
@@ -1316,14 +1571,16 @@ async function agregarAnterior() {
 async function agregar() {
     const adjuntoInput = document.getElementById("adjuntoCotizacion");
     const adjuntos = adjuntoInput ? [...adjuntoInput.files] : [];
-    const dniCotizacionValor =
-        document.getElementById("dniCotizacion").value ||
-        document.getElementById("dni").value;
+    const dniCotizacionValor = obtenerDniCotizacionValor();
+    const celularValor = normalizarTelefono(
+        document.getElementById("celular").value
+    );
     const formData = new FormData();
 
     formData.append("dni", dniCotizacionValor);
     formData.append("nombre", document.getElementById("nombre").value);
-    formData.append("celular", document.getElementById("celular").value);
+    formData.append("celular", celularValor);
+    formData.append("opciones", JSON.stringify(obtenerOpcionesFormulario()));
     formData.append("plan", document.getElementById("plan").value);
     formData.append(
         "tipo_cobertura",
@@ -1374,21 +1631,27 @@ async function agregar() {
             document.getElementById("dniCotizacion").value = "";
             document.getElementById("celular").value = "";
             document.getElementById("plan").value = "";
+            document.getElementById("plan2").value = "";
             document.getElementById("valor").value = "";
+            document.getElementById("valor2").value = "";
             document.getElementById("comentarios").value = "";
             document.getElementById("tipoCobertura").selectedIndex = 0;
+            document.getElementById("tipoCobertura2").selectedIndex = 0;
             document.getElementById("modalidad").selectedIndex = 0;
             document.getElementById("referido").checked = false;
             document.getElementById("congelamiento").value = "";
             document.getElementById("bonificacion").value = "";
+            document.getElementById("bonificacion2").value = "";
             document.getElementById("bonificacionAportes").value = "";
+            document.getElementById("bonificacionAportes2").value = "";
             document.getElementById("vigencia").value = "";
+            ocultarOpcionPlan2();
 
             if (adjuntoInput) {
                 adjuntoInput.value = "";
             }
 
-            document.getElementById("dni").value = dniCotizacionValor;
+            document.getElementById("dni").value = dniCotizacionValor || celularValor;
             previsualizarAdjuntosCotizacion();
             actualizarTotalCotizacion();
 
@@ -1505,13 +1768,30 @@ function actualizarTotalCotizacion() {
         - numeroCotizacion("bonificacionAportes");
     const totalEl = document.getElementById("totalCotizacion");
 
-    if (!totalEl) return;
+    if (totalEl) {
+        totalEl.textContent = `$ ${Math.max(total, 0).toLocaleString("es-AR")}`;
+    }
 
-    totalEl.textContent = `$ ${Math.max(total, 0).toLocaleString("es-AR")}`;
+    const total2 =
+        numeroCotizacion("valor2")
+        - numeroCotizacion("bonificacion2")
+        - numeroCotizacion("bonificacionAportes2");
+    const totalEl2 = document.getElementById("totalCotizacion2");
+
+    if (totalEl2) {
+        totalEl2.textContent = `$ ${Math.max(total2, 0).toLocaleString("es-AR")}`;
+    }
 }
 
 function inicializarTotalCotizacion() {
-    ["valor", "bonificacion", "bonificacionAportes"].forEach(id => {
+    [
+        "valor",
+        "bonificacion",
+        "bonificacionAportes",
+        "valor2",
+        "bonificacion2",
+        "bonificacionAportes2"
+    ].forEach(id => {
         const input = document.getElementById(id);
 
         if (input) {
@@ -1935,7 +2215,7 @@ function renderSeguimientosHoy(cotizaciones) {
             <div class="seguimiento-item">
                 <span>
                     <b>${c.nombre || "Sin nombre"}</b>
-                    | DNI ${c.dni}
+                    | DNI ${mostrarDniCotizacion(c.dni)}
                     | ${c.celular || "Sin telefono"}
                     | ${estadoCotizacion(c)}
                 </span>
@@ -1943,6 +2223,14 @@ function renderSeguimientosHoy(cotizaciones) {
             </div>
         `).join("")}
     `;
+}
+
+function renderContadorCotizaciones(cantidad) {
+    const contador = document.getElementById("contadorCotizaciones");
+
+    if (!contador) return;
+
+    contador.textContent = `Cotizaciones encontradas: ${cantidad}`;
 }
 
 async function guardarSeguimientoCotizacion(id, estadoId, seguimientoId) {
@@ -2030,6 +2318,18 @@ async function cargarMisCotizacionesAnterior() {
 
     const data = await res.json();
 
+    console.log("[mis-cotizaciones frontend datos]", {
+        filtros: filtrosCotizacionesQuery(),
+        cantidadRecibida: Array.isArray(data) ? data.length : null,
+        primeros: Array.isArray(data)
+            ? data.slice(0, 5).map(c => ({
+                id: c.id,
+                dni: c.dni,
+                celular: c.celular
+            }))
+            : data
+    });
+
     const div =
         document.getElementById("misResultados");
 
@@ -2037,6 +2337,7 @@ async function cargarMisCotizacionesAnterior() {
 
     completarSelectAsesoras(data);
     renderSeguimientosHoy(data);
+    renderContadorCotizaciones(data.length);
 
     if (data.length === 0) {
 
@@ -2146,19 +2447,22 @@ async function cargarMisCotizacionesAnterior() {
     const agrupadas = {};
 
     data.forEach(c => {
+        const clave = c.dni || c.celular || `sin-dni-${c.id}`;
 
-        if (!agrupadas[c.dni]) {
-            agrupadas[c.dni] = [];
+        if (!agrupadas[clave]) {
+            agrupadas[clave] = [];
         }
 
-        agrupadas[c.dni].push(c);
+        agrupadas[clave].push(c);
     });
 
-    Object.keys(agrupadas).forEach(dni => {
+    Object.keys(agrupadas).forEach(clave => {
 
-        const cotizaciones = agrupadas[dni];
+        const cotizaciones = agrupadas[clave];
 
         const primera = cotizaciones[0];
+        const dniVisible = mostrarDniCotizacion(primera.dni);
+        const claveHistorial = String(clave).replace(/[^a-zA-Z0-9_-]/g, "-");
 
         div.innerHTML += `
 
@@ -2166,7 +2470,7 @@ async function cargarMisCotizacionesAnterior() {
 
                 <p>
                     <b>DNI:</b>
-                    ${dni}
+                    ${dniVisible}
                 </p>
 
                 <p>
@@ -2185,13 +2489,13 @@ async function cargarMisCotizacionesAnterior() {
                 </p>
 
                 <button
-                    onclick="toggleHistorial('${dni}')"
+                    onclick="toggleHistorial('${claveHistorial}')"
                 >
                     Ver historial
                 </button>
 
                 <div
-                    id="historial-${dni}"
+                    id="historial-${claveHistorial}"
                     style="
                         display:none;
                         margin-top:15px;

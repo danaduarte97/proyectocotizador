@@ -127,7 +127,7 @@
                     </div>
 
                     <div class="cotizador-form-grid">
-                        <div class="form-block">
+                        <div class="form-block form-block-full">
                             <h4>Datos del cliente</h4>
 
                             <label class="field">
@@ -146,8 +146,8 @@
                             </label>
                         </div>
 
-                        <div class="form-block">
-                            <h4>Plan y cobertura</h4>
+                        <div class="form-block form-block-full plan-option-card">
+                            <h4>Plan y tipo de cobertura - opci&oacute;n 1</h4>
 
                             <label class="field">
                                 <span>Plan</span>
@@ -177,10 +177,6 @@
                                     <option value="RD OSTV">RD OSTV</option>
                                 </select>
                             </label>
-                        </div>
-
-                        <div class="form-block">
-                            <h4>Valores y bonificaciones</h4>
 
                             <label class="field">
                                 <span>Subtotal</span>
@@ -203,7 +199,87 @@
                             </div>
                         </div>
 
-                        <div class="form-block">
+                        <div class="form-block plan-option-card" id="opcionPlan2Block" hidden>
+                            <h4>Plan y tipo de cobertura - opci&oacute;n 2</h4>
+
+                            <button
+                                type="button"
+                                id="btnQuitarOpcionPlan"
+                                onclick="ocultarOpcionPlan2()"
+                                hidden
+                            >
+                                Quitar opci&oacute;n 2
+                            </button>
+
+                            <label class="field">
+                                <span>Plan</span>
+                                <select id="plan2">
+                                    <option value="">Seleccionar plan</option>
+                                    <option value="Oro">Oro</option>
+                                    <option value="Plata">Plata</option>
+                                    <option value="Bronce">Bronce</option>
+                                    <option value="Acero">Acero</option>
+                                    <option value="Cromo">Cromo</option>
+                                    <option value="Plan Plus">Plus</option>
+                                </select>
+                            </label>
+
+                            <label class="field">
+                                <span>Cobertura</span>
+                                <select id="tipoCobertura2">
+                                    <option value="Individual">Individual</option>
+                                    <option value="Grupo Familiar">Grupo Familiar</option>
+                                </select>
+                            </label>
+
+                            <div class="field shared-field">
+                                <span>Modalidad</span>
+                                <p>Usa la modalidad de la opci&oacute;n 1</p>
+                            </div>
+
+                            <label class="field">
+                                <span>Subtotal</span>
+                                <input type="text" id="valor2" placeholder="Valor">
+                            </label>
+
+                            <label class="field">
+                                <span>Bonificación comercial</span>
+                                <input type="number" id="bonificacion2" placeholder="0" />
+                            </label>
+
+                            <label class="field">
+                                <span>Bonificación por aportes</span>
+                                <input type="number" id="bonificacionAportes2" placeholder="0" />
+                            </label>
+
+                            <div class="total-cotizacion-box">
+                                <span>Total estimado</span>
+                                <strong id="totalCotizacion2">$ 0</strong>
+                            </div>
+                        </div>
+
+                        <div class="form-block plan-options-controls">
+                            <h4>Opciones de plan</h4>
+
+                            <button
+                                type="button"
+                                id="btnAgregarOpcionPlan"
+                                onclick="mostrarOpcionPlan2()"
+                            >
+                                Agregar otra opci&oacute;n de plan
+                            </button>
+
+                            <button
+                                type="button"
+                                id="btnQuitarOpcionPlanLegacy"
+                                onclick="ocultarOpcionPlan2()"
+                                hidden
+                            >
+                                Quitar opci&oacute;n 2
+                            </button>
+                        </div>
+
+                        <div class="form-block form-block-full">
                             <h4>Seguimiento / comentarios / adjuntos</h4>
 
                             <label class="field">
@@ -511,19 +587,25 @@
                             <option value="">Todas las asesoras</option>
                         </select>
 
-                        <input
-                            type="date"
-                            id="filtroFechaDesde"
-                            onchange="cargarMisCotizaciones()"
-                            aria-label="Fecha desde"
-                        >
+                        <label class="filtro-fecha">
+                            <span>Desde</span>
+                            <input
+                                type="date"
+                                id="filtroFechaDesde"
+                                onchange="cargarMisCotizaciones()"
+                                aria-label="Fecha desde"
+                            >
+                        </label>
 
-                        <input
-                            type="date"
-                            id="filtroFechaHasta"
-                            onchange="cargarMisCotizaciones()"
-                            aria-label="Fecha hasta"
-                        >
+                        <label class="filtro-fecha">
+                            <span>Hasta</span>
+                            <input
+                                type="date"
+                                id="filtroFechaHasta"
+                                onchange="cargarMisCotizaciones()"
+                                aria-label="Fecha hasta"
+                            >
+                        </label>
 
                         <button type="button" onclick="limpiarFiltrosCotizaciones()">
                             Limpiar filtros
@@ -535,6 +617,8 @@
                     </div>
 
                     <div id="seguimientosHoy" class="seguimientos-hoy no-pdf"></div>
+
+                    <p id="contadorCotizaciones" class="contador-cotizaciones no-pdf"></p>
 
                     <div id="misResultados"></div>
 

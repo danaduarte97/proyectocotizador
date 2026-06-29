@@ -174,6 +174,64 @@ function normalizarEstadoCotizacion(estado) {
         : valor;
 }
 
+function normalizarTelefono(valor) {
+    let numero = String(valor || "").replace(/\D/g, "");
+
+    if (!numero) return "";
+
+    if (numero.startsWith("549")) {
+        numero = numero.slice(3);
+    } else if (numero.startsWith("54")) {
+        numero = numero.slice(2);
+    }
+
+    while (numero.startsWith("0")) {
+        numero = numero.slice(1);
+    }
+
+    // En celulares argentinos, el 15 puede quedar entre codigo de area y numero.
+    for (let posicion = 2; posicion <= 4; posicion++) {
+        if (numero.slice(posicion, posicion + 2) === "15") {
+            numero = numero.slice(0, posicion) + numero.slice(posicion + 2);
+            break;
+        }
+    }
+
+    return numero;
+}
+
+function normalizarDni(valor) {
+    const dni = String(valor || "").trim();
+    return dni || null;
+}
+
+function compactarSql(sql) {
+    return String(sql || "").replace(/\s+/g, " ").trim();
+}
+
+function resumirCotizacionesParaLog(cotizaciones = []) {
+    return cotizaciones.slice(0, 5).map(cotizacion => ({
+        id: cotizacion.id,
+        dni: cotizacion.dni,
+        celular: cotizacion.celular,
+        celularNormalizado: normalizarTelefono(cotizacion.celular),
+        estado: cotizacion.estado,
+        vendedora: cotizacion.vendedora
+    }));
+}
+
+function diagnosticarCoincidenciasTelefono(cotizaciones = [], termino) {
+    return cotizaciones.slice(0, 10).map(cotizacion => ({
+        id: cotizacion.id,
+        dni: cotizacion.dni,
+        celular: cotizacion.celular,
+        celularNormalizado: normalizarTelefono(cotizacion.celular),
+        termino,
+        terminoNormalizado: normalizarTelefono(termino),
+        coincide: coincideTelefono(cotizacion.celular, termino)
+    }));
+}
+
 function normalizarCotizacion(cotizacion) {
     return {
         ...cotizacion,
@@ -183,6 +241,93 @@ function normalizarCotizacion(cotizacion) {
 
 function normalizarCotizaciones(cotizaciones) {
     return cotizaciones.map(normalizarCotizacion);
+}
+
+function opcionDesdeCotizacion(cotizacion) {
+    return {
+        numero_opcion: 1,
+        plan: cotizacion.plan || "",
+        tipo_cobertura: cotizacion.tipo_cobertura || "Individual",
+        valor: cotizacion.valor || "",
+        bonificacion: cotizacion.bonificacion || "0",
+        bonificacion_aportes: cotizacion.bonificacion_aportes || "0"
+    };
+}
+
+function normalizarOpcionCotizacion(opcion, numeroOpcion) {
+    return {
+        numero_opcion: Number(opcion.numero_opcion || numeroOpcion),
+        plan: String(opcion.plan || "").trim(),
+        tipo_cobertura: String(opcion.tipo_cobertura || "Individual").trim(),
+        valor: String(opcion.valor || "").trim(),
+        bonificacion: String(opcion.bonificacion || "0").trim(),
+        bonificacion_aportes: String(opcion.bonificacion_aportes || "0").trim()
+    };
+}
+
+function opcionesDesdeBody(body) {
+    let opciones = [];
+
+    if (body.opciones) {
+        try {
+            opciones = JSON.parse(body.opciones);
+        } catch (error) {
+            opciones = [];
+        }
+    }
+
+    if (!Array.isArray(opciones) || opciones.length === 0) {
+        opciones = [
+            {
+                numero_opcion: 1,
+                plan: body.plan,
+                tipo_cobertura: body.tipo_cobertura,
+                valor: body.valor,
+                bonificacion: body.bonificacion,
+                bonificacion_aportes: body.bonificacion_aportes
+            }
+        ];
+    }
+
+    return opciones
+        .slice(0, 2)
+        .map((opcion, index) => normalizarOpcionCotizacion(opcion, index + 1))
+        .filter(opcion =>
+            opcion.numero_opcion === 1 ||
+            opcion.plan ||
+            opcion.valor ||
+            Number(opcion.bonificacion || 0) ||
+            Number(opcion.bonificacion_aportes || 0)
+        );
+}
+
+async function insertarOpcionesCotizacion(tx, cotizacionId, opciones) {
+    for (const opcion of opciones) {
+        await tx.run(
+            `
+            INSERT INTO cotizacion_opciones
+            (
+                cotizacion_id,
+                numero_opcion,
+                plan,
+                tipo_cobertura,
+                valor,
+                bonificacion,
+                bonificacion_aportes
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            `,
+            [
+                cotizacionId,
+                opcion.numero_opcion,
+                opcion.plan,
+                opcion.tipo_cobertura,
+                opcion.valor,
+                opcion.bonificacion,
+                opcion.bonificacion_aportes
+            ]
+        );
+    }
 }
 
 function responderCotizacionesConArchivos(res, cotizaciones) {
@@ -195,6 +340,37 @@ function responderCotizacionesConArchivos(res, cotizaciones) {
     }
 
     db.all(
+        `
+        SELECT *
+        FROM cotizacion_opciones
+        WHERE cotizacion_id IN (${ids.map(() => "?").join(", ")})
+        ORDER BY cotizacion_id ASC, numero_opcion ASC
+        `,
+        ids,
+        (errOpciones, opciones) => {
+            if (errOpciones) return res.status(500).json(errOpciones);
+
+            const opcionesPorCotizacion = opciones.reduce((grupo, opcion) => {
+                if (!grupo[opcion.cotizacion_id]) {
+                    grupo[opcion.cotizacion_id] = [];
+                }
+
+                grupo[opcion.cotizacion_id].push(normalizarOpcionCotizacion(
+                    opcion,
+                    opcion.numero_opcion
+                ));
+
+                return grupo;
+            }, {});
+
+            const conOpciones = normalizadas.map(cotizacion => ({
+                ...cotizacion,
+                opciones: opcionesPorCotizacion[cotizacion.id]?.length
+                    ? opcionesPorCotizacion[cotizacion.id]
+                    : [opcionDesdeCotizacion(cotizacion)]
+            }));
+
+            db.all(
         `
         SELECT *
         FROM archivos
@@ -215,11 +391,13 @@ function responderCotizacionesConArchivos(res, cotizaciones) {
             }, {});
 
             res.json(
-                normalizadas.map(cotizacion => ({
+                conOpciones.map(cotizacion => ({
                     ...cotizacion,
                     archivos: archivosPorCotizacion[cotizacion.id] || []
                 }))
             );
+        }
+    );
         }
     );
 }
@@ -434,7 +612,7 @@ db.serialize(() => {
     db.run(`
     CREATE TABLE IF NOT EXISTS cotizaciones (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dni TEXT NOT NULL,
+        dni TEXT,
         nombre TEXT,
         celular TEXT,
         plan TEXT,
@@ -461,6 +639,20 @@ db.serialize(() => {
         password TEXT,
         rol TEXT,
         orden_login INTEGER
+    )
+    `);
+    db.run(`
+    CREATE TABLE IF NOT EXISTS cotizacion_opciones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cotizacion_id INTEGER NOT NULL,
+        numero_opcion INTEGER NOT NULL,
+        plan TEXT,
+        tipo_cobertura TEXT,
+        valor TEXT,
+        bonificacion TEXT,
+        bonificacion_aportes TEXT,
+        fecha DATETIME DEFAULT (datetime('now', '-3 hours')),
+        UNIQUE (cotizacion_id, numero_opcion)
     )
     `);
     db.run(`
@@ -629,11 +821,13 @@ app.get("/", (req, res) => {
 
 function variantesTelefono(valor) {
     const digitos = String(valor || "").replace(/\D/g, "");
+    const normalizado = normalizarTelefono(valor);
     const variantes = new Set();
 
     if (!digitos) return variantes;
 
     variantes.add(digitos);
+    if (normalizado) variantes.add(normalizado);
 
     let huboCambios = true;
 
@@ -693,66 +887,172 @@ function celularSinFormatoSql() {
 }
 
 function buscarCotizacionesPorTelefono(termino, callback) {
-    const variantes = [...variantesTelefono(termino)];
+    const terminoNormalizado = normalizarTelefono(termino);
+    const sqlExacto = `
+        ${SELECT_COTIZACIONES}
+        WHERE celular = ?
+           OR TRIM(celular) = ?
+        ORDER BY fecha ASC
+    `;
+    const sqlNormalizada = `
+        ${SELECT_COTIZACIONES}
+        WHERE celular IS NOT NULL
+          AND TRIM(celular) != ''
+        ORDER BY fecha ASC
+    `;
 
-    if (variantes.length === 0) {
+    if (!terminoNormalizado) {
+        console.log("[buscar telefono]", {
+            motor: db.type,
+            termino,
+            terminoNormalizado,
+            busqueda: "sin termino telefonico normalizable",
+            sql: compactarSql(
+                db.toNativeSql ? db.toNativeSql(sqlExacto) : sqlExacto
+            ),
+            candidatos: 0,
+            resultados: 0,
+            primerasColumnas: []
+        });
         callback(null, []);
         return;
     }
 
-    const telefonoNormalizado = celularSinFormatoSql();
-    const condiciones = variantes.map(() =>
-        `${telefonoNormalizado} LIKE ?`
-    ).join(" OR ");
-
     db.all(
-        `
-        ${SELECT_COTIZACIONES}
-        WHERE celular IS NOT NULL
-          AND celular != ''
-          AND (${condiciones})
-        ORDER BY fecha ASC
-        `,
-        variantes.map(variante => `%${variante}%`),
-        (err, cotizaciones) => {
+        sqlExacto,
+        [termino, termino],
+        (errExacto, cotizacionesExactas) => {
+            if (errExacto) {
+                callback(errExacto);
+                return;
+            }
+
+            console.log("[buscar telefono exacto]", {
+                motor: db.type,
+                termino,
+                terminoNormalizado,
+                busqueda: "celular = termino OR TRIM(celular) = termino",
+                sql: compactarSql(
+                    db.toNativeSql ? db.toNativeSql(sqlExacto) : sqlExacto
+                ),
+                resultados: cotizacionesExactas.length,
+                primerasColumnas: resumirCotizacionesParaLog(cotizacionesExactas)
+            });
+
+            if (cotizacionesExactas.length > 0) {
+                callback(null, normalizarCotizaciones(cotizacionesExactas));
+                return;
+            }
+
+            db.all(
+                sqlNormalizada,
+                [],
+                (err, cotizaciones) => {
             if (err) {
                 callback(err);
                 return;
             }
 
+            console.log("[buscar telefono candidatos]", {
+                motor: db.type,
+                termino,
+                terminoNormalizado,
+                cantidadAntesDeFiltrar: cotizaciones.length,
+                primerasColumnas: resumirCotizacionesParaLog(cotizaciones),
+                diagnosticoCoincidencias: diagnosticarCoincidenciasTelefono(
+                    cotizaciones,
+                    termino
+                )
+            });
+
+            const resultados = cotizaciones.filter(cotizacion =>
+                coincideTelefono(cotizacion.celular, termino)
+            );
+
+            console.log("[buscar telefono]", {
+                motor: db.type,
+                termino,
+                terminoNormalizado,
+                busqueda: "comparacion normalizada en memoria sobre columna celular",
+                sql: compactarSql(
+                    db.toNativeSql ? db.toNativeSql(sqlNormalizada) : sqlNormalizada
+                ),
+                candidatos: cotizaciones.length,
+                resultados: resultados.length,
+                primerasColumnas: resumirCotizacionesParaLog(resultados),
+                diagnosticoCoincidencias: diagnosticarCoincidenciasTelefono(
+                    resultados,
+                    termino
+                )
+            });
+
             callback(
                 null,
-                normalizarCotizaciones(
-                    cotizaciones.filter(cotizacion =>
-                        coincideTelefono(cotizacion.celular, termino)
-                    )
-                )
+                normalizarCotizaciones(resultados)
+            );
+                }
             );
         }
     );
 }
 
 function coincideTelefono(celular, termino) {
-    const celulares = variantesTelefono(celular);
-    const busquedas = variantesTelefono(termino);
+    const celularTexto = String(celular || "").trim();
+    const terminoTexto = String(termino || "").trim();
+    const celularDigitos = celularTexto.replace(/\D/g, "");
+    const terminoDigitos = terminoTexto.replace(/\D/g, "");
+    const celularNormalizado = normalizarTelefono(celular);
+    const busquedaNormalizada = normalizarTelefono(termino);
 
-    return [...celulares].some(numero =>
-        [...busquedas].some(busqueda => numero.includes(busqueda))
-    );
+    if (!celularTexto || !terminoTexto) return false;
+
+    return celularTexto === terminoTexto
+        || (Boolean(celularDigitos) && celularDigitos === terminoDigitos)
+        || (
+            Boolean(celularNormalizado)
+            && Boolean(busquedaNormalizada)
+            && celularNormalizado === busquedaNormalizada
+        );
 }
 
 // 👉 BUSCAR POR DNI O TELÉFONO
 app.get("/buscar/:termino", verificarToken, (req, res) => {
     const termino = String(req.params.termino || "").trim();
+    const sqlDni = `${SELECT_COTIZACIONES} WHERE dni = ? ORDER BY fecha ASC`;
+
+    console.log("[buscar inicio]", {
+        motor: db.type,
+        usuario: req.user?.usuario,
+        rol: req.user?.rol,
+        termino,
+        terminoNormalizado: normalizarTelefono(termino)
+    });
 
     db.all(
-        `${SELECT_COTIZACIONES} WHERE dni = ? ORDER BY fecha ASC`,
+        sqlDni,
         [termino],
         (err, cotizacionesPorDni) => {
             if (err) return res.status(500).json(err);
 
+            console.log("[buscar dni]", {
+                motor: db.type,
+                termino,
+                terminoNormalizado: normalizarTelefono(termino),
+                sql: compactarSql(db.toNativeSql ? db.toNativeSql(sqlDni) : sqlDni),
+                resultados: cotizacionesPorDni.length,
+                primerasColumnas: resumirCotizacionesParaLog(cotizacionesPorDni)
+            });
+
             // La coincidencia exacta de DNI conserva la búsqueda original.
             if (cotizacionesPorDni.length > 0) {
+                console.log("[buscar resultado final]", {
+                    usuario: req.user?.usuario,
+                    termino,
+                    tipo: "dni",
+                    resultados: cotizacionesPorDni.length,
+                    primerasColumnas: resumirCotizacionesParaLog(cotizacionesPorDni)
+                });
+
                 return responderCotizacionesConArchivos(
                     res,
                     cotizacionesPorDni
@@ -765,6 +1065,14 @@ app.get("/buscar/:termino", verificarToken, (req, res) => {
                     if (errorTelefono) {
                         return res.status(500).json(errorTelefono);
                     }
+
+                    console.log("[buscar resultado final]", {
+                        usuario: req.user?.usuario,
+                        termino,
+                        tipo: "celular",
+                        resultados: cotizaciones.length,
+                        primerasColumnas: resumirCotizacionesParaLog(cotizaciones)
+                    });
 
                     responderCotizacionesConArchivos(res, cotizaciones);
                 }
@@ -836,9 +1144,7 @@ const uploadImagenesNuevaCotizacion = (req, res, next) => {
 app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, async (req, res) => {
 
     const {
-        dni,
         nombre,
-        celular,
         plan,
         tipo_cobertura,
         valor,
@@ -850,14 +1156,19 @@ app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, async (req, 
         congelamiento,
         comentarios
     } = req.body;
+    const dni = normalizarDni(req.body.dni);
+    const celular = normalizarTelefono(req.body.celular);
+    const opcionesCotizacion = opcionesDesdeBody(req.body);
+    const opcionPrincipal = opcionesCotizacion[0] || normalizarOpcionCotizacion({}, 1);
 
     const vendedora = req.user.usuario;
 
-    if (!dni) {
-        return res.status(400).json({
-            error: "DNI obligatorio"
-        });
-    }
+    console.log("[agregar cotizacion]", {
+        motor: db.type,
+        campoTelefono: "celular",
+        dniPresente: Boolean(dni),
+        celularNormalizado: celular
+    });
 
     const archivos = req.files || [];
 
@@ -888,11 +1199,11 @@ app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, async (req, 
                     dni,
                     nombre,
                     celular,
-                    plan,
-                    tipo_cobertura,
-                    valor,
-                    bonificacion,
-                    bonificacion_aportes,
+                    opcionPrincipal.plan,
+                    opcionPrincipal.tipo_cobertura,
+                    opcionPrincipal.valor,
+                    opcionPrincipal.bonificacion,
+                    opcionPrincipal.bonificacion_aportes,
                     modalidad,
                     vendedora,
                     vigencia,
@@ -904,6 +1215,7 @@ app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, async (req, 
 
             const id = resultado.lastID;
 
+            await insertarOpcionesCotizacion(tx, id, opcionesCotizacion);
             await insertarArchivosCotizacion(tx, id, archivos);
 
             return id;
@@ -1573,6 +1885,15 @@ function consultarCotizacionesFiltradas(req, callback) {
 app.get("/mis-cotizaciones", verificarToken, (req, res) => {
     consultarCotizacionesFiltradas(req, (err, rows) => {
         if (err) return res.status(500).json(err);
+
+        console.log("[mis-cotizaciones resultado]", {
+            motor: db.type,
+            usuario: req.user?.usuario,
+            rol: req.user?.rol,
+            filtros: req.query,
+            resultados: rows.length,
+            primerasColumnas: resumirCotizacionesParaLog(rows)
+        });
 
         responderCotizacionesConArchivos(res, rows);
     });

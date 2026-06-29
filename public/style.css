@@ -411,6 +411,10 @@ button:hover {
   gap: 16px;
 }
 
+.form-block-full {
+  grid-column: 1/-1;
+}
+
 .form-block {
   padding: 16px;
   border: 1px solid #d6e4f0;
@@ -422,6 +426,66 @@ button:hover {
   margin: 0 0 12px;
   color: #1b4f72;
   font-size: 15px;
+}
+
+.plan-options-controls {
+  grid-column: 1/-1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.plan-options-controls h4,
+#btnQuitarOpcionPlanLegacy {
+  display: none;
+}
+
+.btn-agregar-opcion,
+#btnAgregarOpcionPlan {
+  width: 100%;
+  margin: 0;
+}
+
+.plan-option-card {
+  grid-column: 1/-1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  padding: 16px;
+  border: 1px solid #d6e4f0;
+  border-radius: 12px;
+  background: #f8fbfd;
+}
+
+.plan-option-card[hidden] {
+  display: none !important;
+}
+
+.plan-option-card h4,
+.plan-option-card .total-cotizacion-box,
+.plan-option-card > button {
+  grid-column: 1/-1;
+}
+
+.plan-option-card h4 {
+  margin-bottom: 0;
+}
+
+#btnQuitarOpcionPlan {
+  justify-self: end;
+  width: auto;
+  margin: -4px 0 4px;
+}
+
+.shared-field p {
+  min-height: 42px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #d6e4f0;
+  border-radius: 10px;
+  background: #eef7fc;
+  color: #405466;
+  font-size: 13px;
 }
 
 .field {
@@ -582,6 +646,14 @@ button:hover {
 @media (max-width: 760px) {
   .buscar-cliente-grid,
   .cotizador-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .plan-option-card {
+    grid-column: 1/-1;
+    border: 1px solid #d6e4f0;
+    border-radius: 12px;
+  }
+  .plan-option-card {
     grid-template-columns: 1fr;
   }
   .buscar-cliente-grid button {
@@ -1042,6 +1114,25 @@ button:hover {
 .cotizaciones-filtros input,
 .cotizaciones-filtros button {
   margin: 0;
+}
+
+.filtro-fecha {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.filtro-fecha span {
+  color: #405466;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.contador-cotizaciones {
+  margin: 8px 0 14px;
+  color: #405466;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .seguimientos-hoy {
