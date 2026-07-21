@@ -631,6 +631,10 @@ db.serialize(() => {
     ALTER TABLE cotizaciones
     ADD COLUMN modalidad TEXT
 `, () => { });
+    db.run(`
+    ALTER TABLE cotizaciones
+    ADD COLUMN cliente_id INTEGER
+`, () => { });
 
     db.run(`
     CREATE TABLE IF NOT EXISTS usuarios (
@@ -658,6 +662,44 @@ db.serialize(() => {
     db.run(`
     ALTER TABLE usuarios
     ADD COLUMN orden_login INTEGER
+`, () => { });
+    db.run(`
+    CREATE TABLE IF NOT EXISTS clientes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identidad_tipo TEXT NOT NULL,
+        identidad_valor TEXT NOT NULL,
+        dni TEXT,
+        dni_normalizado TEXT,
+        nombre TEXT,
+        celular TEXT,
+        telefono_normalizado TEXT,
+        vendedora_id INTEGER,
+        vendedora_asignada TEXT,
+        etapa_comercial TEXT NOT NULL DEFAULT 'Nuevo',
+        fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+        fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (identidad_tipo, identidad_valor)
+    )
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_clientes_dni_normalizado
+    ON clientes (dni_normalizado)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_clientes_telefono_normalizado
+    ON clientes (telefono_normalizado)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_clientes_nombre
+    ON clientes (nombre)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_clientes_vendedora_id
+    ON clientes (vendedora_id)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_cotizaciones_cliente_id
+    ON cotizaciones (cliente_id)
 `, () => { });
 
     const passwordHash = bcrypt.hashSync("1234", 10);

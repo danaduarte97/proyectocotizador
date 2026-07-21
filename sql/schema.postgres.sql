@@ -2,11 +2,42 @@ CREATE TABLE IF NOT EXISTS usuarios (
     id BIGSERIAL PRIMARY KEY,
     usuario TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
-    rol TEXT NOT NULL
+    rol TEXT NOT NULL,
+    orden_login INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS clientes (
+    id BIGSERIAL PRIMARY KEY,
+    identidad_tipo TEXT NOT NULL,
+    identidad_valor TEXT NOT NULL,
+    dni TEXT,
+    dni_normalizado TEXT,
+    nombre TEXT,
+    celular TEXT,
+    telefono_normalizado TEXT,
+    vendedora_id BIGINT REFERENCES usuarios(id) ON DELETE SET NULL,
+    vendedora_asignada TEXT,
+    etapa_comercial TEXT NOT NULL DEFAULT 'Nuevo',
+    fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT now(),
+    fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT clientes_identidad_unique
+        UNIQUE (identidad_tipo, identidad_valor),
+    CONSTRAINT clientes_identidad_tipo_check
+        CHECK (identidad_tipo IN ('dni', 'telefono')),
+    CONSTRAINT clientes_etapa_comercial_check
+        CHECK (etapa_comercial IN (
+            'Nuevo',
+            'Contactado',
+            'Cotizado',
+            'En seguimiento',
+            'Afiliado',
+            'No interesado'
+        ))
 );
 
 CREATE TABLE IF NOT EXISTS cotizaciones (
     id BIGSERIAL PRIMARY KEY,
+    cliente_id BIGINT REFERENCES clientes(id) ON DELETE SET NULL,
     dni TEXT,
     nombre TEXT,
     celular TEXT,
@@ -61,6 +92,9 @@ CREATE TABLE IF NOT EXISTS cotizacion_opciones (
 CREATE INDEX IF NOT EXISTS idx_cotizaciones_dni
     ON cotizaciones (dni);
 
+CREATE INDEX IF NOT EXISTS idx_cotizaciones_cliente_id
+    ON cotizaciones (cliente_id);
+
 CREATE INDEX IF NOT EXISTS idx_cotizaciones_vendedora
     ON cotizaciones (vendedora);
 
@@ -78,6 +112,18 @@ CREATE INDEX IF NOT EXISTS idx_comentarios_cotizacion_id
 
 CREATE INDEX IF NOT EXISTS idx_cotizacion_opciones_cotizacion_id
     ON cotizacion_opciones (cotizacion_id);
+
+CREATE INDEX IF NOT EXISTS idx_clientes_dni_normalizado
+    ON clientes (dni_normalizado);
+
+CREATE INDEX IF NOT EXISTS idx_clientes_telefono_normalizado
+    ON clientes (telefono_normalizado);
+
+CREATE INDEX IF NOT EXISTS idx_clientes_nombre_lower
+    ON clientes (LOWER(nombre));
+
+CREATE INDEX IF NOT EXISTS idx_clientes_vendedora_id
+    ON clientes (vendedora_id);
 
 -- Usuario admin inicial opcional.
 -- Generar el hash con bcrypt antes de ejecutar y reemplazar el valor de password.

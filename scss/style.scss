@@ -378,6 +378,25 @@ button {
     font-weight: bold;
 }
 
+.app-title {
+    width: min(100%, 800px);
+    margin: 8px auto 26px;
+    color: #1b4f72;
+}
+
+.app-title h1 {
+    margin: 0;
+    font-size: 32px;
+    line-height: 1.15;
+}
+
+.app-title p {
+    margin: 8px 0 0;
+    color: #405466;
+    font-size: 16px;
+    line-height: 1.4;
+}
+
 /* SECCIONES */
 .seccion {
     display: block;
