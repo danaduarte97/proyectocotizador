@@ -39,6 +39,24 @@ function dbRunAsync(sql, params = []) {
     });
 }
 
+function dbGetAsync(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.get(sql, params, (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+        });
+    });
+}
+
+function dbAllAsync(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+        });
+    });
+}
+
 const usuariosOrdenReady = (async () => {
     try {
         if (db.type === "postgres") {
@@ -205,6 +223,69 @@ function normalizarDni(valor) {
     return dni || null;
 }
 
+function normalizarDniIdentidad(valor) {
+    const dni = String(valor || "").replace(/\D/g, "");
+    return dni || null;
+}
+
+function identidadClienteDesdeDatos({ dni, celular } = {}) {
+    const dniNormalizado = normalizarDniIdentidad(dni);
+
+    if (dniNormalizado) {
+        return {
+            tipo: "dni",
+            valor: dniNormalizado
+        };
+    }
+
+    const telefonoNormalizado = normalizarTelefono(celular);
+
+    if (telefonoNormalizado) {
+        return {
+            tipo: "telefono",
+            valor: telefonoNormalizado
+        };
+    }
+
+    return null;
+}
+
+function identidadBusquedaSegura(termino) {
+    const texto = String(termino || "").trim();
+    const digitos = texto.replace(/\D/g, "");
+
+    if (!texto || !digitos) {
+        return null;
+    }
+
+    const pareceDni =
+        /^\d{7,8}$/.test(digitos) &&
+        !/[+()]/.test(texto) &&
+        normalizarTelefono(texto).length <= 8;
+
+    if (pareceDni) {
+        return {
+            tipo: "dni",
+            valor: digitos
+        };
+    }
+
+    const telefonoNormalizado = normalizarTelefono(texto);
+
+    if (telefonoNormalizado && telefonoNormalizado.length >= 8) {
+        return {
+            tipo: "telefono",
+            valor: telefonoNormalizado
+        };
+    }
+
+    return null;
+}
+
+function esBusquedaIdentidadValida(termino) {
+    return Boolean(identidadBusquedaSegura(termino));
+}
+
 function compactarSql(sql) {
     return String(sql || "").replace(/\s+/g, " ").trim();
 }
@@ -241,6 +322,130 @@ function normalizarCotizacion(cotizacion) {
 
 function normalizarCotizaciones(cotizaciones) {
     return cotizaciones.map(normalizarCotizacion);
+}
+
+async function obtenerUsuarioPorNombre(nombreUsuario, tx = null) {
+    const store = tx || {
+        get: dbGetAsync
+    };
+
+    return store.get(
+        `
+        SELECT id, TRIM(usuario) AS usuario
+        FROM usuarios
+        WHERE LOWER(TRIM(usuario)) = LOWER(TRIM(?))
+        LIMIT 1
+        `,
+        [nombreUsuario]
+    );
+}
+
+async function buscarClientePorIdentidad(identidad, tx = null) {
+    if (!identidad) return null;
+
+    const store = tx || {
+        get: dbGetAsync
+    };
+
+    return store.get(
+        `
+        SELECT *
+        FROM clientes
+        WHERE identidad_tipo = ?
+          AND identidad_valor = ?
+        LIMIT 1
+        `,
+        [identidad.tipo, identidad.valor]
+    );
+}
+
+async function crearClienteSiHaceFalta(tx, datosCliente, usuarioAutenticado) {
+    const identidad = identidadClienteDesdeDatos(datosCliente);
+
+    if (!identidad) {
+        return null;
+    }
+
+    const existente = await buscarClientePorIdentidad(identidad, tx);
+
+    if (existente) {
+        return existente;
+    }
+
+    const usuario = await obtenerUsuarioPorNombre(usuarioAutenticado, tx);
+    const dniNormalizado = normalizarDniIdentidad(datosCliente.dni);
+    const telefonoNormalizado = normalizarTelefono(datosCliente.celular);
+    const valores = [
+        identidad.tipo,
+        identidad.valor,
+        datosCliente.dni || null,
+        dniNormalizado,
+        datosCliente.nombre || null,
+        datosCliente.celular || null,
+        telefonoNormalizado || null,
+        usuario?.id || null,
+        usuario?.usuario || usuarioAutenticado || null
+    ];
+
+    if (db.type === "postgres") {
+        return tx.get(
+            `
+            INSERT INTO clientes (
+                identidad_tipo,
+                identidad_valor,
+                dni,
+                dni_normalizado,
+                nombre,
+                celular,
+                telefono_normalizado,
+                vendedora_id,
+                vendedora_asignada,
+                etapa_comercial
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Nuevo')
+            ON CONFLICT (identidad_tipo, identidad_valor) DO UPDATE
+            SET
+                dni = COALESCE(clientes.dni, EXCLUDED.dni),
+                dni_normalizado = COALESCE(clientes.dni_normalizado, EXCLUDED.dni_normalizado),
+                nombre = COALESCE(clientes.nombre, EXCLUDED.nombre),
+                celular = COALESCE(clientes.celular, EXCLUDED.celular),
+                telefono_normalizado = COALESCE(clientes.telefono_normalizado, EXCLUDED.telefono_normalizado),
+                vendedora_id = COALESCE(clientes.vendedora_id, EXCLUDED.vendedora_id),
+                vendedora_asignada = COALESCE(clientes.vendedora_asignada, EXCLUDED.vendedora_asignada),
+                fecha_actualizacion = now()
+            RETURNING *
+            `,
+            valores
+        );
+    }
+
+    await tx.run(
+        `
+        INSERT OR IGNORE INTO clientes (
+            identidad_tipo,
+            identidad_valor,
+            dni,
+            dni_normalizado,
+            nombre,
+            celular,
+            telefono_normalizado,
+            vendedora_id,
+            vendedora_asignada,
+            etapa_comercial
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Nuevo')
+        `,
+        valores
+    );
+
+    return buscarClientePorIdentidad(identidad, tx);
+}
+
+function whereCotizacionesVisiblesPorListado(req, condiciones, parametros) {
+    if (req.user.rol !== "admin") {
+        condiciones.push("vendedora = ?");
+        parametros.push(req.user.usuario);
+    }
 }
 
 function opcionDesdeCotizacion(cotizacion) {
@@ -1058,17 +1263,198 @@ function coincideTelefono(celular, termino) {
 }
 
 // 👉 BUSCAR POR DNI O TELÉFONO
-app.get("/buscar/:termino", verificarToken, (req, res) => {
-    const termino = String(req.params.termino || "").trim();
-    const sqlDni = `${SELECT_COTIZACIONES} WHERE dni = ? ORDER BY fecha ASC`;
+async function buscarClientesPorIdentidadSegura(termino) {
+    const identidad = identidadBusquedaSegura(termino);
 
-    console.log("[buscar inicio]", {
-        motor: db.type,
-        usuario: req.user?.usuario,
-        rol: req.user?.rol,
-        termino,
-        terminoNormalizado: normalizarTelefono(termino)
-    });
+    if (!identidad) {
+        return {
+            identidad: null,
+            clientes: []
+        };
+    }
+
+    const condicion = identidad.tipo === "telefono"
+        ? `
+            (
+                clientes.identidad_tipo = ?
+                AND clientes.identidad_valor = ?
+            )
+            OR clientes.telefono_normalizado = ?
+        `
+        : `
+            clientes.identidad_tipo = ?
+            AND clientes.identidad_valor = ?
+        `;
+    const parametros = identidad.tipo === "telefono"
+        ? [identidad.tipo, identidad.valor, identidad.valor]
+        : [identidad.tipo, identidad.valor];
+    const clientes = await dbAllAsync(
+        `
+        SELECT
+            clientes.*,
+            COUNT(cotizaciones.id) AS total_cotizaciones
+        FROM clientes
+        LEFT JOIN cotizaciones
+            ON cotizaciones.cliente_id = clientes.id
+        WHERE ${condicion}
+        GROUP BY clientes.id
+        ORDER BY clientes.fecha_actualizacion DESC, clientes.id DESC
+        `,
+        parametros
+    );
+
+    return {
+        identidad,
+        clientes
+    };
+}
+
+async function buscarCotizacionesPorIdentidadSegura(termino) {
+    const identidad = identidadBusquedaSegura(termino);
+
+    if (!identidad) {
+        return {
+            identidad: null,
+            cotizaciones: []
+        };
+    }
+
+    const condicion = identidad.tipo === "telefono"
+        ? `
+            (
+                clientes.identidad_tipo = ?
+                AND clientes.identidad_valor = ?
+            )
+            OR clientes.telefono_normalizado = ?
+        `
+        : `
+            clientes.identidad_tipo = ?
+            AND clientes.identidad_valor = ?
+        `;
+    const parametros = identidad.tipo === "telefono"
+        ? [identidad.tipo, identidad.valor, identidad.valor]
+        : [identidad.tipo, identidad.valor];
+    const cotizaciones = await dbAllAsync(
+        `
+        SELECT q.*
+        FROM (${SELECT_COTIZACIONES}) q
+        JOIN clientes
+            ON clientes.id = q.cliente_id
+        WHERE ${condicion}
+        ORDER BY q.fecha ASC
+        `,
+        parametros
+    );
+
+    return {
+        identidad,
+        cotizaciones
+    };
+}
+
+function clienteCoincideConBusqueda(cliente, termino) {
+    const identidad = identidadBusquedaSegura(termino);
+
+    return Boolean(
+        identidad &&
+        cliente &&
+        (
+            (
+                cliente.identidad_tipo === identidad.tipo &&
+                cliente.identidad_valor === identidad.valor
+            ) ||
+            (
+                identidad.tipo === "telefono" &&
+                cliente.telefono_normalizado === identidad.valor
+            )
+        )
+    );
+}
+
+app.get("/clientes/buscar", verificarToken, async (req, res) => {
+    const termino = String(req.query.termino || "").trim();
+
+    try {
+        const resultado = await buscarClientesPorIdentidadSegura(termino);
+
+        if (!resultado.identidad) {
+            return res.status(400).json({
+                error: "Ingresá un DNI o teléfono completo"
+            });
+        }
+
+        res.json({
+            identidad: resultado.identidad,
+            clientes: resultado.clientes
+        });
+    } catch (error) {
+        res.status(500).json({ error: "No se pudo buscar el cliente" });
+    }
+});
+
+app.get("/clientes/:id/cotizaciones", verificarToken, async (req, res) => {
+    const clienteId = req.params.id;
+    const termino = String(req.query.termino || "").trim();
+
+    if (!/^\d+$/.test(clienteId)) {
+        return res.status(400).json({ error: "Cliente inválido" });
+    }
+
+    try {
+        const cliente = await dbGetAsync(
+            "SELECT * FROM clientes WHERE id = ?",
+            [clienteId]
+        );
+
+        if (!cliente) {
+            return res.status(404).json({ error: "Cliente no encontrado" });
+        }
+
+        if (!clienteCoincideConBusqueda(cliente, termino)) {
+            return res.status(403).json({
+                error: "Búsqueda específica requerida"
+            });
+        }
+
+        const cotizaciones = await dbAllAsync(
+            `
+            ${SELECT_COTIZACIONES}
+            WHERE cliente_id = ?
+            ORDER BY fecha ASC
+            `,
+            [clienteId]
+        );
+
+        responderCotizacionesConArchivos(res, cotizaciones);
+    } catch (error) {
+        res.status(500).json({ error: "No se pudieron cargar las cotizaciones" });
+    }
+});
+
+app.get("/buscar/:termino", verificarToken, async (req, res) => {
+    const termino = String(req.params.termino || "").trim();
+
+    try {
+        const resultado = await buscarCotizacionesPorIdentidadSegura(termino);
+
+        console.log("[buscar resultado final]", {
+            usuario: req.user?.usuario,
+            termino,
+            identidad: resultado.identidad,
+            resultados: resultado.cotizaciones.length,
+            primerasColumnas: resumirCotizacionesParaLog(resultado.cotizaciones)
+        });
+
+        if (!resultado.identidad) {
+            return res.status(400).json({
+                error: "Ingresá un DNI o teléfono completo"
+            });
+        }
+
+        return responderCotizacionesConArchivos(res, resultado.cotizaciones);
+    } catch (error) {
+        return res.status(500).json({ error: "No se pudo realizar la búsqueda" });
+    }
 
     db.all(
         sqlDni,
@@ -1183,8 +1569,54 @@ const uploadImagenesNuevaCotizacion = (req, res, next) => {
     });
 };
 
-app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, async (req, res) => {
+function errorHttp(status, message) {
+    const error = new Error(message);
+    error.status = status;
+    return error;
+}
 
+async function obtenerClienteParaCotizacion(tx, datosCliente, clienteId, terminoBusqueda = "") {
+    if (clienteId) {
+        if (!/^\d+$/.test(String(clienteId))) {
+            throw errorHttp(400, "Cliente inválido");
+        }
+
+        const cliente = await tx.get(
+            "SELECT * FROM clientes WHERE id = ?",
+            [clienteId]
+        );
+
+        if (!cliente) {
+            throw errorHttp(404, "Cliente no encontrado");
+        }
+
+        const identidadDatos = identidadClienteDesdeDatos(datosCliente);
+
+        const coincideDatos = Boolean(
+            identidadDatos &&
+            identidadDatos.tipo === cliente.identidad_tipo &&
+            identidadDatos.valor === cliente.identidad_valor
+        );
+        const coincideBusqueda = clienteCoincideConBusqueda(
+            cliente,
+            terminoBusqueda
+        );
+
+        if (!coincideDatos && !coincideBusqueda) {
+            throw errorHttp(400, "Los datos no coinciden con el cliente");
+        }
+
+        return cliente;
+    }
+
+    return crearClienteSiHaceFalta(
+        tx,
+        datosCliente,
+        datosCliente.vendedora
+    );
+}
+
+async function crearCotizacionDesdeRequest(req, archivos, clienteIdParam = null) {
     const {
         nombre,
         plan,
@@ -1212,14 +1644,27 @@ app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, async (req, 
         celularNormalizado: celular
     });
 
-    const archivos = req.files || [];
+    return db.transaction(async tx => {
+        const cliente = await obtenerClienteParaCotizacion(
+            tx,
+            {
+                dni,
+                nombre,
+                celular,
+                vendedora
+            },
+            clienteIdParam || req.body.cliente_id || null,
+            req.body.termino_busqueda || req.query.termino || ""
+        );
+        const dniCotizacion = dni || cliente?.dni || null;
+        const nombreCotizacion = nombre || cliente?.nombre || "";
+        const celularCotizacion = celular || cliente?.telefono_normalizado || cliente?.celular || "";
 
-    try {
-        const cotizacionId = await db.transaction(async tx => {
-            const resultado = await tx.run(
+        const resultado = await tx.run(
             `
             INSERT INTO cotizaciones
             (
+                cliente_id,
                 dni,
                 nombre,
                 celular,
@@ -1235,12 +1680,13 @@ app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, async (req, 
                 congelamiento,
                 comentarios
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
                 [
-                    dni,
-                    nombre,
-                    celular,
+                    cliente?.id || null,
+                    dniCotizacion,
+                    nombreCotizacion,
+                    celularCotizacion,
                     opcionPrincipal.plan,
                     opcionPrincipal.tipo_cobertura,
                     opcionPrincipal.valor,
@@ -1260,17 +1706,42 @@ app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, async (req, 
             await insertarOpcionesCotizacion(tx, id, opcionesCotizacion);
             await insertarArchivosCotizacion(tx, id, archivos);
 
-            return id;
-        });
+        return {
+            id,
+            cliente_id: cliente?.id || null
+        };
+    });
+}
+
+async function responderCreacionCotizacion(req, res, clienteIdParam = null) {
+    const archivos = req.files || [];
+
+    try {
+        const resultado = await crearCotizacionDesdeRequest(
+            req,
+            archivos,
+            clienteIdParam
+        );
 
         res.json({
             success: true,
-            id: cotizacionId
+            id: resultado.id,
+            cliente_id: resultado.cliente_id
         });
     } catch (error) {
         eliminarArchivosLocales(archivos);
-        res.status(500).json(error);
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo guardar la cotización"
+        });
     }
+}
+
+app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, async (req, res) => {
+    responderCreacionCotizacion(req, res);
+});
+
+app.post("/clientes/:id/cotizaciones", verificarToken, uploadImagenesNuevaCotizacion, async (req, res) => {
+    responderCreacionCotizacion(req, res, req.params.id);
 });
 
 app.post(
