@@ -32,7 +32,12 @@
 
             <nav>
 
-                <button onclick="mostrarSeccion('cotizador')">
+                <button onclick="mostrarSeccion('inicio')">
+                    <img class="icono-menu" src="img/imgicon-busqueda.png" alt="">
+                    <span>Inicio</span>
+                </button>
+
+                <button onclick="abrirCotizadorManual()">
                     <img class="icono-menu" src="img/imgicon-cotizador.png" alt="">
                     <span>Cotizador</span></button>
                 <button onclick="mostrarSeccion('misCotizaciones')">
@@ -107,7 +112,71 @@
                 <p>Gesti&oacute;n de clientes, cotizaciones y seguimiento comercial</p>
             </header>
 
-            <section id="cotizador" class="seccion">
+            <section id="inicio" class="seccion">
+
+                <div class="inicio-shell">
+                    <div class="inicio-header">
+                        <div>
+                            <p id="inicioSaludo" class="inicio-saludo">Hola</p>
+                            <h2>Inicio</h2>
+                        </div>
+                    </div>
+
+                    <div class="inicio-grid">
+                        <section class="inicio-panel inicio-panel-busqueda">
+                            <div class="form-section-header">
+                                <h3>Buscador r&aacute;pido de clientes</h3>
+                            </div>
+
+                            <div class="inicio-busqueda-form">
+                                <label class="field">
+                                    <span>DNI completo o tel&eacute;fono</span>
+                                    <input
+                                        type="text"
+                                        id="inicioBusquedaCliente"
+                                        placeholder="Buscar por DNI o tel&eacute;fono"
+                                    >
+                                </label>
+
+                                <button type="button" onclick="buscarClienteInicio()">
+                                    Buscar
+                                </button>
+                            </div>
+
+                            <div id="inicioResultadoCliente" class="inicio-resultados"></div>
+                        </section>
+
+                        <section class="inicio-panel inicio-panel-calendario">
+                            <div class="form-section-header">
+                                <h3>Calendario</h3>
+                            </div>
+
+                            <div class="inicio-placeholder">
+                                <strong>Seguimientos y recordatorios</strong>
+                                <span>Espacio preparado para la pr&oacute;xima etapa.</span>
+                            </div>
+                        </section>
+                    </div>
+
+                    <section class="inicio-panel inicio-panel-pipeline">
+                        <div class="form-section-header">
+                            <h3>Pipeline comercial</h3>
+                        </div>
+
+                        <div class="pipeline-preview">
+                            <div>Nuevo</div>
+                            <div>Contactado</div>
+                            <div>Cotizado</div>
+                            <div>En seguimiento</div>
+                            <div>Afiliado</div>
+                            <div>No interesado</div>
+                        </div>
+                    </section>
+                </div>
+
+            </section>
+
+            <section id="cotizador" class="seccion" style="display:none;">
 
                 <div class="container cotizador-panel buscar-panel">
                     <div class="form-section-header">
@@ -134,6 +203,9 @@
                     <div class="cotizador-form-grid">
                         <div class="form-block form-block-full">
                             <h4>Datos del cliente</h4>
+
+                            <input type="hidden" id="clienteIdCotizacion">
+                            <input type="hidden" id="terminoBusquedaCotizacion">
 
                             <label class="field">
                                 <span>DNI</span>

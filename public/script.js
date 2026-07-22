@@ -632,6 +632,7 @@ function renderTarjetaCotizacion(c, opciones = {}) {
     `;
 }
 let busquedaCotizacionActual = 0;
+let busquedaInicioActual = 0;
 
 function normalizarTelefono(valor) {
     let numero = String(valor || "").replace(/\D/g, "");
@@ -797,6 +798,8 @@ function limpiarFormularioCotizacion() {
     setIndiceCampo("tipoCobertura2");
     setIndiceCampo("modalidad");
     setCheckedCampo("referido");
+    setValorCampo("clienteIdCotizacion");
+    setValorCampo("terminoBusquedaCotizacion");
     ocultarOpcionPlan2();
 
     const adjuntoInput = document.getElementById("adjuntoCotizacion");
@@ -816,6 +819,220 @@ function completarFormularioCotizacion(cotizacion, termino) {
     setValorCampo("nombre", cotizacion.nombre || "");
     setValorCampo("celular", cotizacion.celular || "");
     setValorCampo("dniCotizacion", cotizacion.dni || "");
+}
+
+function completarFormularioClienteInicio(cliente, termino) {
+    limpiarFormularioCotizacion();
+    setValorCampo("clienteIdCotizacion", cliente.id || "");
+    setValorCampo("terminoBusquedaCotizacion", termino || "");
+    setValorCampo("dni", termino || cliente.dni || cliente.telefono_normalizado || "");
+    setValorCampo("nombre", cliente.nombre || "");
+    setValorCampo("celular", cliente.telefono_normalizado || cliente.celular || "");
+    setValorCampo("dniCotizacion", cliente.dni || cliente.dni_normalizado || "");
+}
+
+function abrirCotizadorManual() {
+    limpiarFormularioCotizacion();
+    limpiarResultadosBusqueda();
+    const inputBusqueda = document.getElementById("dni");
+    if (inputBusqueda) {
+        inputBusqueda.value = "";
+    }
+    mostrarSeccion("cotizador");
+}
+
+function renderResumenCotizacionInicio(cotizacion) {
+    const opciones = obtenerOpcionesCotizacion(cotizacion);
+    const opcionPrincipal = opciones[0] || {};
+    const estado = estadoCotizacion(cotizacion);
+
+    return `
+        <div class="inicio-cotizacion-item">
+            <div>
+                <strong>Cotizaci&oacute;n N&deg; ${formatearCotizacionId(cotizacion.id)}</strong>
+                <span>${formatearFecha(cotizacion.fecha)}</span>
+            </div>
+            <div>
+                <span>Plan</span>
+                <strong>${opcionPrincipal.plan || cotizacion.plan || "-"}</strong>
+            </div>
+            <div>
+                <span>Valor</span>
+                <strong>$ ${Number(opcionPrincipal.valor || cotizacion.valor || 0).toLocaleString("es-AR")}</strong>
+            </div>
+            <div>
+                <span>Estado</span>
+                <strong>${estado}</strong>
+            </div>
+            <div>
+                <span>Vendedora</span>
+                <strong>${cotizacion.vendedora || "-"}</strong>
+            </div>
+            <div class="inicio-cotizacion-acciones">
+                <button
+                    type="button"
+                    onclick="toggleInicioDetalle('${cotizacion.id}')"
+                >
+                    Ver detalle
+                </button>
+                ${opciones.map(opcion => `
+                    <button
+                        type="button"
+                        onclick="descargarPDF(${cotizacion.id}, ${opcion.numero_opcion})"
+                    >
+                        PDF ${opcion.numero_opcion}
+                    </button>
+                `).join("")}
+            </div>
+            <div
+                id="inicio-detalle-${cotizacion.id}"
+                class="inicio-cotizacion-detalle"
+                hidden
+            >
+                <div class="inicio-detalle-card">
+                    <div class="cotizacion-detalle-grid">
+                        <p><b>DNI:</b> ${mostrarDniCotizacion(cotizacion.dni)}</p>
+                        <p><b>Tel&eacute;fono:</b> ${cotizacion.celular || "-"}</p>
+                        <p><b>Modalidad:</b> ${cotizacion.modalidad || "Particular"}</p>
+                        <p><b>V&aacute;lida hasta:</b> ${cotizacion.vigencia || "-"}</p>
+                        <p><b>Referido:</b> ${cotizacion.referido || "No"}</p>
+                        <p><b>Congelamiento:</b> ${cotizacion.congelamiento || "Sin congelamiento"}</p>
+                    </div>
+                    <div class="cotizacion-opciones">
+                        ${opciones.map(renderDetalleOpcion).join("")}
+                    </div>
+                    <p><b>Comentario:</b> ${cotizacion.comentarios || "Sin comentarios"}</p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function toggleInicioDetalle(id) {
+    const detalle = document.getElementById(`inicio-detalle-${id}`);
+
+    if (!detalle) return;
+
+    detalle.hidden = !detalle.hidden;
+}
+
+async function cargarCotizacionesClienteInicio(cliente, termino) {
+    const res = await fetch(
+        `/clientes/${cliente.id}/cotizaciones?termino=${encodeURIComponent(termino)}`,
+        { headers: authHeaders() }
+    );
+
+    if (await manejarError(res)) return [];
+
+    if (!res.ok) {
+        return [];
+    }
+
+    return res.json();
+}
+
+async function buscarClienteInicio() {
+    const busquedaId = ++busquedaInicioActual;
+    const input = document.getElementById("inicioBusquedaCliente");
+    const contenedor = document.getElementById("inicioResultadoCliente");
+    const termino = input?.value.trim() || "";
+
+    if (!contenedor) return;
+
+    contenedor.innerHTML = "";
+
+    if (!termino) {
+        mostrarToast("Ingres&aacute; un DNI completo o tel&eacute;fono", "error");
+        return;
+    }
+
+    mostrarLoader();
+
+    try {
+        const res = await fetch(
+            `/clientes/buscar?termino=${encodeURIComponent(termino)}`,
+            { headers: authHeaders() }
+        );
+
+        if (busquedaId !== busquedaInicioActual) return;
+        if (await manejarError(res)) return;
+
+        if (!res.ok) {
+            const error = await res.json().catch(() => ({}));
+            contenedor.innerHTML = `<p>${error.error || "No se pudo buscar el cliente"}</p>`;
+            return;
+        }
+
+        const data = await res.json();
+
+        if (!data.clientes || data.clientes.length === 0) {
+            contenedor.innerHTML = "<p>No se encontr&oacute; ning&uacute;n cliente.</p>";
+            return;
+        }
+
+        const cliente = data.clientes[0];
+        const cotizaciones = await cargarCotizacionesClienteInicio(cliente, termino);
+
+        if (busquedaId !== busquedaInicioActual) return;
+
+        contenedor.innerHTML = `
+            <div class="inicio-cliente-card">
+                <div class="inicio-cliente-datos">
+                    <div>
+                        <span>Cliente</span>
+                        <strong>${cliente.nombre || "-"}</strong>
+                    </div>
+                    <div>
+                        <span>DNI</span>
+                        <strong>${cliente.dni || cliente.dni_normalizado || "-"}</strong>
+                    </div>
+                    <div>
+                        <span>Tel&eacute;fono</span>
+                        <strong>${cliente.telefono_normalizado || cliente.celular || "-"}</strong>
+                    </div>
+                    <div>
+                        <span>Cotizaciones</span>
+                        <strong>${cotizaciones.length}</strong>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="inicio-nueva-cotizacion"
+                    onclick="nuevaCotizacionDesdeInicio('${cliente.id}', '${encodeURIComponent(termino)}')"
+                >
+                    + Nueva cotizaci&oacute;n
+                </button>
+            </div>
+            <div class="inicio-historial">
+                <h4>Historial de cotizaciones</h4>
+                ${
+                    cotizaciones.length
+                        ? cotizaciones.map(renderResumenCotizacionInicio).join("")
+                        : "<p>Este cliente todav&iacute;a no tiene cotizaciones.</p>"
+                }
+            </div>
+        `;
+
+        window.ultimoClienteInicio = cliente;
+
+    } catch (error) {
+        contenedor.innerHTML = "<p>No se pudo realizar la b&uacute;squeda.</p>";
+    } finally {
+        ocultarLoader();
+    }
+}
+
+function nuevaCotizacionDesdeInicio(clienteId, terminoCodificado) {
+    const cliente = window.ultimoClienteInicio;
+    const termino = decodeURIComponent(terminoCodificado || "");
+
+    if (!cliente || String(cliente.id) !== String(clienteId)) {
+        mostrarToast("Volv&eacute; a buscar el cliente", "error");
+        return;
+    }
+
+    completarFormularioClienteInicio(cliente, termino);
+    mostrarSeccion("cotizador");
 }
 
 async function buscarAnterior() {
@@ -1484,6 +1701,9 @@ async function agregarAnterior() {
     const celularValor = normalizarTelefono(
         document.getElementById("celular").value
     );
+    const clienteId = document.getElementById("clienteIdCotizacion")?.value || "";
+    const terminoBusqueda =
+        document.getElementById("terminoBusquedaCotizacion")?.value || "";
     const formData = new FormData();
 
     formData.append("dni", dniCotizacionValor);
@@ -1515,6 +1735,14 @@ async function agregarAnterior() {
         document.getElementById("bonificacionAportes").value || 0
     );
     formData.append("comentarios", document.getElementById("comentarios").value);
+
+    if (clienteId) {
+        formData.append("cliente_id", clienteId);
+    }
+
+    if (terminoBusqueda) {
+        formData.append("termino_busqueda", terminoBusqueda);
+    }
 
     adjuntos.forEach(archivo => {
         formData.append("imagenes", archivo);
@@ -1614,7 +1842,10 @@ async function agregar() {
     mostrarLoader();
 
     try {
-        const res = await fetch("/agregar", {
+        const endpoint = clienteId
+            ? `/clientes/${encodeURIComponent(clienteId)}/cotizaciones`
+            : "/agregar";
+        const res = await fetch(endpoint, {
             method: "POST",
             headers: {
                 Authorization: `Bearer ${localStorage.getItem("token")}`
@@ -1645,6 +1876,8 @@ async function agregar() {
             document.getElementById("bonificacionAportes").value = "";
             document.getElementById("bonificacionAportes2").value = "";
             document.getElementById("vigencia").value = "";
+            setValorCampo("clienteIdCotizacion");
+            setValorCampo("terminoBusquedaCotizacion");
             ocultarOpcionPlan2();
 
             if (adjuntoInput) {
@@ -1655,7 +1888,11 @@ async function agregar() {
             previsualizarAdjuntosCotizacion();
             actualizarTotalCotizacion();
 
-            buscar();
+            if (document.getElementById("inicio")?.style.display !== "none") {
+                buscarClienteInicio();
+            } else {
+                buscar();
+            }
         } else {
             const error = await res.json().catch(() => ({}));
             mostrarToast(error.error || "Error", "error");
@@ -1959,6 +2196,11 @@ window.onload = function () {
         `;
     }
 
+    const inicioSaludo = document.getElementById("inicioSaludo");
+    if (inicioSaludo) {
+        inicioSaludo.textContent = `Hola, ${payload.usuario}`;
+    }
+
     inicializarTotalCotizacion();
 
     const inputBusqueda = document.getElementById("dni");
@@ -1968,6 +2210,16 @@ window.onload = function () {
                 busquedaCotizacionActual++;
                 limpiarResultadosBusqueda();
                 limpiarFormularioCotizacion();
+            }
+        });
+    }
+
+    const inputBusquedaInicio = document.getElementById("inicioBusquedaCliente");
+    if (inputBusquedaInicio) {
+        inputBusquedaInicio.addEventListener("keydown", event => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                buscarClienteInicio();
             }
         });
     }
