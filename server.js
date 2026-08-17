@@ -4,6 +4,13 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const db = require("./db");
 const ExcelJS = require("exceljs");
+const {
+    CLAVES_TAREAS_POSVENTA,
+    ESTADOS_POSVENTA,
+    calcularSeguimientoPosventa,
+    esFechaIsoValida,
+    sumarMesesCalendario
+} = require("./lib/posventa");
 
 const app = express();
 const SECRET = process.env.JWT_SECRET || "secreto_ultra_seguro";
@@ -29,6 +36,12 @@ fs.mkdirSync(uploadsDir, { recursive: true });
 // 👉 MIDDLEWARES
 app.use(cors());
 app.use(express.json());
+
+// Los adjuntos se sirven mediante una ruta autenticada mas abajo. Evitar que
+// express.static permita acceder a public/uploads con una URL conocida.
+app.use("/uploads", (req, res) => {
+    res.status(404).json({ error: "Recurso no encontrado" });
+});
 
 function dbRunAsync(sql, params = []) {
     return new Promise((resolve, reject) => {
@@ -144,6 +157,47 @@ const ESTADOS_COTIZACION = [
     "Anulada"
 ];
 
+const ETAPAS_PIPELINE = [
+    "Nuevos",
+    "Contactados",
+    "Interesados",
+    "Documentación",
+    "Auditoría",
+    "Afiliados"
+];
+
+const ESTADOS_CIERRE_NEGATIVO = [
+    "anulada",
+    "anulado",
+    "perdido",
+    "perdida",
+    "no interesado",
+    "no interesada",
+    "rechazado",
+    "rechazada",
+    "cancelado",
+    "cancelada",
+    "descartado",
+    "descartada",
+    "cerrado sin venta",
+    "no viable",
+    "no califica",
+    "no calificado",
+    "no calificada"
+];
+
+const TIPOS_TAREA_CRM = [
+    "tarea",
+    "seguimiento",
+    "recordatorio"
+];
+
+const ESTADOS_TAREA_CRM = [
+    "pendiente",
+    "realizada",
+    "cancelada"
+];
+
 const ESTADOS_AFILIADO_LEGACY = [
     String.fromCharCode(0x41, 0x62, 0x6f, 0x6e, 0xf3),
     String.fromCharCode(0x41, 0x62, 0x6f, 0x6e, 0xc3, 0xb3),
@@ -167,6 +221,13 @@ const ESTADOS_AFILIADO_LEGACY = [
 const ESTADOS_AFILIADO_LEGACY_SQL = ESTADOS_AFILIADO_LEGACY
     .map(estado => `'${estado.replace(/'/g, "''")}'`)
     .join(", ");
+const ESTADOS_CIERRE_NEGATIVO_SQL = ESTADOS_CIERRE_NEGATIVO
+    .map(estado => `'${estado.replace(/'/g, "''")}'`)
+    .join(", ");
+const OPORTUNIDAD_ACTIVA_SQL = `
+    LOWER(TRIM(COALESCE(cotizaciones.estado, '')))
+    NOT IN (${ESTADOS_CIERRE_NEGATIVO_SQL})
+`;
 
 const ESTADO_COTIZACION_SQL = `
     CASE
@@ -190,6 +251,14 @@ function normalizarEstadoCotizacion(estado) {
     return ESTADOS_AFILIADO_LEGACY.includes(valor)
         ? "Afiliado"
         : valor;
+}
+
+function normalizarEtapaPipeline(etapa) {
+    const valor = String(etapa || "").trim();
+
+    return ETAPAS_PIPELINE.includes(valor)
+        ? valor
+        : "Nuevos";
 }
 
 function normalizarTelefono(valor) {
@@ -535,7 +604,30 @@ async function insertarOpcionesCotizacion(tx, cotizacionId, opciones) {
     }
 }
 
-function responderCotizacionesConArchivos(res, cotizaciones) {
+function puedeGestionarCotizacion(req, cotizacion) {
+    return req.user.rol === "admin"
+        || cotizacion.vendedora === req.user.usuario;
+}
+
+async function obtenerCotizacionParaGestion(req, cotizacionId) {
+    if (!/^\d+$/.test(String(cotizacionId))) {
+        throw errorHttp(400, "Cotización inválida");
+    }
+
+    const cotizacion = await dbGetAsync(
+        "SELECT id, vendedora FROM cotizaciones WHERE id = ?",
+        [cotizacionId]
+    );
+
+    if (!cotizacion) throw errorHttp(404, "Cotización no encontrada");
+    if (!puedeGestionarCotizacion(req, cotizacion)) {
+        throw errorHttp(403, "No autorizado");
+    }
+
+    return cotizacion;
+}
+
+function responderCotizacionesConArchivos(req, res, cotizaciones) {
     const normalizadas = normalizarCotizaciones(cotizaciones);
     const ids = normalizadas.map(cotizacion => cotizacion.id);
 
@@ -598,7 +690,10 @@ function responderCotizacionesConArchivos(res, cotizaciones) {
             res.json(
                 conOpciones.map(cotizacion => ({
                     ...cotizacion,
-                    archivos: archivosPorCotizacion[cotizacion.id] || []
+                    // La información comercial es compartida; los adjuntos no.
+                    archivos: puedeGestionarCotizacion(req, cotizacion)
+                        ? archivosPorCotizacion[cotizacion.id] || []
+                        : []
                 }))
             );
         }
@@ -840,6 +935,22 @@ db.serialize(() => {
     ALTER TABLE cotizaciones
     ADD COLUMN cliente_id INTEGER
 `, () => { });
+    db.run(`
+    ALTER TABLE cotizaciones
+    ADD COLUMN etapa_pipeline TEXT DEFAULT 'Nuevos'
+`, () => { });
+    db.run(`
+    ALTER TABLE cotizaciones
+    ADD COLUMN fecha_alta TEXT
+`, () => { });
+    db.run(`
+    ALTER TABLE cotizaciones
+    ADD COLUMN estado_posventa TEXT
+`, () => { });
+    db.run(`
+    ALTER TABLE cotizaciones
+    ADD COLUMN fecha_actualizacion_posventa DATETIME
+`, () => { });
 
     db.run(`
     CREATE TABLE IF NOT EXISTS usuarios (
@@ -905,6 +1016,85 @@ db.serialize(() => {
     db.run(`
     CREATE INDEX IF NOT EXISTS idx_cotizaciones_cliente_id
     ON cotizaciones (cliente_id)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_cotizaciones_etapa_pipeline
+    ON cotizaciones (etapa_pipeline)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_cotizaciones_etapa_vendedora
+    ON cotizaciones (etapa_pipeline, vendedora)
+`, () => { });
+    db.run(`
+    CREATE TABLE IF NOT EXISTS tareas_crm (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titulo TEXT NOT NULL,
+        descripcion TEXT,
+        fecha TEXT NOT NULL,
+        hora TEXT,
+        tipo TEXT NOT NULL DEFAULT 'tarea',
+        estado TEXT NOT NULL DEFAULT 'pendiente',
+        usuario_responsable_id INTEGER,
+        usuario_responsable TEXT NOT NULL,
+        cotizacion_id INTEGER,
+        cliente_id INTEGER,
+        clave_automatica TEXT,
+        fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+        fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, () => { });
+    db.run(`
+    ALTER TABLE tareas_crm
+    ADD COLUMN clave_automatica TEXT
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_tareas_crm_responsable_id
+    ON tareas_crm (usuario_responsable_id)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_tareas_crm_responsable_texto
+    ON tareas_crm (usuario_responsable)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_tareas_crm_fecha_estado
+    ON tareas_crm (fecha, estado)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_tareas_crm_cotizacion_id
+    ON tareas_crm (cotizacion_id)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_tareas_crm_cliente_id
+    ON tareas_crm (cliente_id)
+`, () => { });
+    db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_tareas_crm_posventa
+    ON tareas_crm (cotizacion_id, clave_automatica)
+    WHERE clave_automatica IS NOT NULL
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_cotizaciones_fecha_alta
+    ON cotizaciones (fecha_alta)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_cotizaciones_estado_posventa
+    ON cotizaciones (estado_posventa)
+`, () => { });
+    db.run(`
+    CREATE TABLE IF NOT EXISTS cotizaciones_posventa_historial (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cotizacion_id INTEGER NOT NULL,
+        estado_anterior TEXT,
+        estado_nuevo TEXT NOT NULL,
+        fecha_alta TEXT,
+        usuario_id INTEGER,
+        usuario TEXT NOT NULL,
+        fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_posventa_historial_cotizacion_fecha
+    ON cotizaciones_posventa_historial (cotizacion_id, fecha DESC)
 `, () => { });
 
     const passwordHash = bcrypt.hashSync("1234", 10);
@@ -981,6 +1171,18 @@ WHERE estado IS NULL OR estado = ''
 UPDATE cotizaciones
 SET estado = 'Afiliado'
 WHERE estado IN (${ESTADOS_AFILIADO_LEGACY.map(() => "?").join(", ")})
+`, ESTADOS_AFILIADO_LEGACY, () => { });
+    db.run(`
+UPDATE cotizaciones
+SET etapa_pipeline = CASE
+    WHEN LOWER(TRIM(COALESCE(estado, ''))) IN (${ESTADOS_CIERRE_NEGATIVO_SQL}) THEN NULL
+    WHEN estado IN (${ESTADOS_AFILIADO_LEGACY.map(() => "?").join(", ")}, 'Afiliado') THEN 'Afiliados'
+    WHEN estado = 'Contactado' THEN 'Contactados'
+    ELSE 'Nuevos'
+END
+WHERE LOWER(TRIM(COALESCE(estado, ''))) IN (${ESTADOS_CIERRE_NEGATIVO_SQL})
+   OR etapa_pipeline IS NULL
+   OR TRIM(etapa_pipeline) = ''
 `, ESTADOS_AFILIADO_LEGACY, () => { });
 
 });
@@ -1425,7 +1627,7 @@ app.get("/clientes/:id/cotizaciones", verificarToken, async (req, res) => {
             [clienteId]
         );
 
-        responderCotizacionesConArchivos(res, cotizaciones);
+        responderCotizacionesConArchivos(req, res, cotizaciones);
     } catch (error) {
         res.status(500).json({ error: "No se pudieron cargar las cotizaciones" });
     }
@@ -1451,7 +1653,7 @@ app.get("/buscar/:termino", verificarToken, async (req, res) => {
             });
         }
 
-        return responderCotizacionesConArchivos(res, resultado.cotizaciones);
+        return responderCotizacionesConArchivos(req, res, resultado.cotizaciones);
     } catch (error) {
         return res.status(500).json({ error: "No se pudo realizar la búsqueda" });
     }
@@ -1482,6 +1684,7 @@ app.get("/buscar/:termino", verificarToken, async (req, res) => {
                 });
 
                 return responderCotizacionesConArchivos(
+                    req,
                     res,
                     cotizacionesPorDni
                 );
@@ -1502,7 +1705,7 @@ app.get("/buscar/:termino", verificarToken, async (req, res) => {
                         primerasColumnas: resumirCotizacionesParaLog(cotizaciones)
                     });
 
-                    responderCotizacionesConArchivos(res, cotizaciones);
+                    responderCotizacionesConArchivos(req, res, cotizaciones);
                 }
             );
         }
@@ -1747,6 +1950,16 @@ app.post("/clientes/:id/cotizaciones", verificarToken, uploadImagenesNuevaCotiza
 app.post(
     "/subir-archivo/:id",
     verificarToken,
+    async (req, res, next) => {
+        try {
+            await obtenerCotizacionParaGestion(req, req.params.id);
+            next();
+        } catch (error) {
+            res.status(error.status || 500).json({
+                error: error.status ? error.message : "No se pudo verificar la cotización"
+            });
+        }
+    },
     (req, res, next) => {
         db.get(
             `
@@ -1843,26 +2056,59 @@ app.post(
     }
 );
 
-app.get("/archivos/:id", verificarToken, (req, res) => {
+app.get("/archivos/:id", verificarToken, async (req, res) => {
+    try {
+        await obtenerCotizacionParaGestion(req, req.params.id);
+        const rows = await dbAllAsync(
+            `
+            SELECT *
+            FROM archivos
+            WHERE cotizacion_id = ?
+            ORDER BY fecha DESC
+            `,
+            [req.params.id]
+        );
+        res.json(rows);
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudieron cargar los adjuntos"
+        });
+    }
+});
 
-    db.all(
-        `
-        SELECT *
-        FROM archivos
-        WHERE cotizacion_id = ?
-        ORDER BY fecha DESC
-        `,
-        [req.params.id],
-        (err, rows) => {
-            if (err) return res.status(500).json(err);
-            res.json(rows);
+app.get("/archivos/:id/descargar", verificarToken, async (req, res) => {
+    try {
+        const archivo = await dbGetAsync(
+            `
+            SELECT archivos.*, cotizaciones.vendedora
+            FROM archivos
+            JOIN cotizaciones ON cotizaciones.id = archivos.cotizacion_id
+            WHERE archivos.id = ?
+            `,
+            [req.params.id]
+        );
+
+        if (!archivo) throw errorHttp(404, "Adjunto no encontrado");
+        if (!puedeGestionarCotizacion(req, archivo)) {
+            throw errorHttp(403, "No autorizado");
         }
-    );
+
+        res.sendFile(path.join(uploadsDir, path.basename(archivo.archivo || "")));
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo descargar el adjunto"
+        });
+    }
 });
 
 app.delete("/archivos/:id", verificarToken, (req, res) => {
     db.get(
-        "SELECT * FROM archivos WHERE id = ?",
+        `
+        SELECT archivos.*, cotizaciones.vendedora
+        FROM archivos
+        JOIN cotizaciones ON cotizaciones.id = archivos.cotizacion_id
+        WHERE archivos.id = ?
+        `,
         [req.params.id],
         (err, archivo) => {
             if (err) {
@@ -1875,6 +2121,10 @@ app.delete("/archivos/:id", verificarToken, (req, res) => {
                 return res.status(404).json({
                     error: "Adjunto no encontrado"
                 });
+            }
+
+            if (!puedeGestionarCotizacion(req, archivo)) {
+                return res.status(403).json({ error: "No autorizado" });
             }
 
             const nombreSeguro = path.basename(archivo.archivo || "");
@@ -1949,30 +2199,31 @@ app.post("/comentarios/:id", verificarToken, (req, res) => {
         });
     }
 
-    db.run(
-        `
-        INSERT INTO comentarios_cotizacion
-        (
-            cotizacion_id,
-            usuario,
-            comentario
-        )
-        VALUES (?, ?, ?)
-        `,
-        [
-            cotizacionId,
-            req.user.usuario,
-            comentario
-        ],
-        function (err) {
-
-            if (err) {
-                return res.status(500).json(err);
+    db.get(
+        "SELECT id FROM cotizaciones WHERE id = ?",
+        [cotizacionId],
+        (errorCotizacion, cotizacion) => {
+            if (errorCotizacion) return res.status(500).json(errorCotizacion);
+            if (!cotizacion) {
+                return res.status(404).json({ error: "Cotización no encontrada" });
             }
 
-            res.json({
-                success: true
-            });
+            db.run(
+                `
+                INSERT INTO comentarios_cotizacion
+                (
+                    cotizacion_id,
+                    usuario,
+                    comentario
+                )
+                VALUES (?, ?, ?)
+                `,
+                [cotizacionId, req.user.usuario, comentario],
+                function (err) {
+                    if (err) return res.status(500).json(err);
+                    res.json({ success: true, id: this.lastID });
+                }
+            );
         }
     );
 });
@@ -2255,8 +2506,1288 @@ app.put("/cambiar-password", verificarToken, async (req, res) => {
     );
 });
 
+app.delete("/comentarios/:id", verificarToken, (req, res) => {
+    db.get(
+        "SELECT * FROM comentarios_cotizacion WHERE id = ?",
+        [req.params.id],
+        (err, comentario) => {
+            if (err) return res.status(500).json(err);
+            if (!comentario) {
+                return res.status(404).json({ error: "Comentario no encontrado" });
+            }
 
-app.put("/cotizaciones/:id/seguimiento", verificarToken, (req, res) => {
+            if (
+                req.user.rol !== "admin"
+                && comentario.usuario !== req.user.usuario
+            ) {
+                return res.status(403).json({ error: "No autorizado" });
+            }
+
+            db.run(
+                "DELETE FROM comentarios_cotizacion WHERE id = ?",
+                [comentario.id],
+                errorDelete => {
+                    if (errorDelete) return res.status(500).json(errorDelete);
+                    res.json({ success: true });
+                }
+            );
+        }
+    );
+});
+
+function rangoMesActual() {
+    const ahora = new Date();
+    const inicio = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    const fin = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 1);
+
+    return {
+        inicio: inicio.toISOString().slice(0, 10),
+        fin: fin.toISOString().slice(0, 10),
+        hoy: ahora.toISOString().slice(0, 10)
+    };
+}
+
+function rangoMesDesdeQuery(mes) {
+    const match = String(mes || "").match(/^(\d{4})-(\d{2})$/);
+    const base = match
+        ? new Date(Number(match[1]), Number(match[2]) - 1, 1)
+        : new Date();
+    const inicio = new Date(base.getFullYear(), base.getMonth(), 1);
+    const fin = new Date(base.getFullYear(), base.getMonth() + 1, 1);
+
+    return {
+        inicio: inicio.toISOString().slice(0, 10),
+        fin: fin.toISOString().slice(0, 10)
+    };
+}
+
+function filtroCotizacionesPorRol(req, alias = "cotizaciones") {
+    if (req.user.rol === "admin") {
+        return {
+            sql: "",
+            params: []
+        };
+    }
+
+    return {
+        sql: `${alias}.vendedora = ?`,
+        params: [req.user.usuario]
+    };
+}
+
+function agregarFiltroRol(req, condiciones, parametros, alias = "cotizaciones") {
+    const filtro = filtroCotizacionesPorRol(req, alias);
+
+    if (filtro.sql) {
+        condiciones.push(filtro.sql);
+        parametros.push(...filtro.params);
+    }
+}
+
+async function obtenerUsuarioAutenticado(req, tx = null) {
+    return obtenerUsuarioPorNombre(req.user.usuario, tx);
+}
+
+async function obtenerCotizacionPermitida(req, cotizacionId, tx = null) {
+    if (!cotizacionId) return null;
+
+    if (!/^\d+$/.test(String(cotizacionId))) {
+        throw errorHttp(400, "Cotización inválida");
+    }
+
+    const executor = tx || {
+        get: dbGetAsync
+    };
+    const cotizacion = await executor.get(
+        `
+        SELECT
+            id,
+            cliente_id,
+            nombre,
+            vendedora,
+            estado,
+            etapa_pipeline,
+            fecha_alta,
+            estado_posventa
+        FROM cotizaciones
+        WHERE id = ?
+        `,
+        [cotizacionId]
+    );
+
+    if (!cotizacion) {
+        throw errorHttp(404, "Cotización no encontrada");
+    }
+
+    if (req.user.rol !== "admin" && cotizacion.vendedora !== req.user.usuario) {
+        throw errorHttp(403, "No autorizado");
+    }
+
+    return cotizacion;
+}
+
+async function registrarHistorialPosventa(
+    tx,
+    cotizacion,
+    estadoAnterior,
+    estadoNuevo,
+    fechaAlta,
+    req
+) {
+    if (estadoAnterior === estadoNuevo) return;
+
+    const usuario = await obtenerUsuarioAutenticado(req, tx);
+
+    await tx.run(
+        `
+        INSERT INTO cotizaciones_posventa_historial
+        (
+            cotizacion_id,
+            estado_anterior,
+            estado_nuevo,
+            fecha_alta,
+            usuario_id,
+            usuario
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        [
+            cotizacion.id,
+            estadoAnterior || null,
+            estadoNuevo,
+            fechaAlta,
+            usuario?.id || null,
+            req.user.usuario
+        ]
+    );
+}
+
+async function sincronizarTareaAutomaticaPosventa(
+    tx,
+    cotizacion,
+    usuarioResponsable,
+    clave,
+    titulo,
+    fecha
+) {
+    await tx.run(
+        `
+        INSERT INTO tareas_crm
+        (
+            titulo,
+            descripcion,
+            fecha,
+            hora,
+            tipo,
+            estado,
+            usuario_responsable_id,
+            usuario_responsable,
+            cotizacion_id,
+            cliente_id,
+            clave_automatica
+        )
+        VALUES (?, ?, ?, NULL, 'seguimiento', 'pendiente', ?, ?, ?, ?, ?)
+        ON CONFLICT DO NOTHING
+        `,
+        [
+            titulo,
+            "Seguimiento automático de posventa",
+            fecha,
+            usuarioResponsable?.id || null,
+            cotizacion.vendedora,
+            cotizacion.id,
+            cotizacion.cliente_id || null,
+            clave
+        ]
+    );
+
+    await tx.run(
+        `
+        UPDATE tareas_crm
+        SET
+            titulo = ?,
+            descripcion = ?,
+            fecha = ?,
+            usuario_responsable_id = ?,
+            usuario_responsable = ?,
+            cliente_id = ?,
+            fecha_actualizacion = CURRENT_TIMESTAMP
+        WHERE cotizacion_id = ?
+          AND clave_automatica = ?
+        `,
+        [
+            titulo,
+            "Seguimiento automático de posventa",
+            fecha,
+            usuarioResponsable?.id || null,
+            cotizacion.vendedora,
+            cotizacion.cliente_id || null,
+            cotizacion.id,
+            clave
+        ]
+    );
+}
+
+async function sincronizarTareasPosventa(tx, cotizacion, fechaAlta) {
+    if (!fechaAlta) return;
+
+    const usuarioResponsable = await obtenerUsuarioPorNombre(
+        cotizacion.vendedora,
+        tx
+    );
+    const nombre = cotizacion.nombre || `cotización #${cotizacion.id}`;
+
+    await sincronizarTareaAutomaticaPosventa(
+        tx,
+        cotizacion,
+        usuarioResponsable,
+        CLAVES_TAREAS_POSVENTA.segundaCuota,
+        `Verificar segunda cuota de ${nombre}`,
+        sumarMesesCalendario(fechaAlta, 1)
+    );
+    await sincronizarTareaAutomaticaPosventa(
+        tx,
+        cotizacion,
+        usuarioResponsable,
+        CLAVES_TAREAS_POSVENTA.terceraCuota,
+        `Confirmar pago de las 3 cuotas de ${nombre}`,
+        sumarMesesCalendario(fechaAlta, 2)
+    );
+}
+
+async function cerrarTareasPosventa(tx, cotizacionId, estadoPosventa) {
+    const estadoTarea = estadoPosventa === "pago_3_meses"
+        ? "realizada"
+        : estadoPosventa === "baja_mora"
+            ? "cancelada"
+            : null;
+
+    if (!estadoTarea) return;
+
+    await tx.run(
+        `
+        UPDATE tareas_crm
+        SET estado = ?,
+            fecha_actualizacion = CURRENT_TIMESTAMP
+        WHERE cotizacion_id = ?
+          AND clave_automatica IS NOT NULL
+          AND estado = 'pendiente'
+        `,
+        [estadoTarea, cotizacionId]
+    );
+}
+
+function esEstadoCierreNegativo(estado) {
+    return ESTADOS_CIERRE_NEGATIVO.includes(
+        String(estado || "").trim().toLowerCase()
+    );
+}
+
+function estadoCompatibleConEtapa(etapa) {
+    return etapa === "Contactados" ? "Contactado" : "Nuevo";
+}
+
+function etapaCompatibleConEstado(estado) {
+    return estado === "Contactado" ? "Contactados" : "Nuevos";
+}
+
+async function actualizarCamposTransicion(
+    tx,
+    cotizacionId,
+    campos,
+    valores
+) {
+    await tx.run(
+        `UPDATE cotizaciones SET ${campos.join(", ")} WHERE id = ?`,
+        [...valores, cotizacionId]
+    );
+}
+
+async function aplicarTransicionComercial(
+    tx,
+    req,
+    cotizacion,
+    {
+        estadoSolicitado,
+        etapaSolicitada,
+        fechaSeguimiento
+    } = {}
+) {
+    const solicitaAfiliacion = estadoSolicitado === "Afiliado"
+        || etapaSolicitada === "Afiliados";
+    const campos = [];
+    const valores = [];
+
+    if (solicitaAfiliacion) {
+        const fechaAlta = cotizacion.fecha_alta || null;
+        const estadoPosventa = cotizacion.estado_posventa
+            || (fechaAlta ? "en_seguimiento" : null);
+
+        campos.push("estado = ?", "etapa_pipeline = ?");
+        valores.push("Afiliado", "Afiliados");
+
+        if (fechaSeguimiento !== undefined) {
+            campos.push("fecha_seguimiento = ?");
+            valores.push(fechaSeguimiento);
+        }
+
+        if (fechaAlta && !cotizacion.estado_posventa) {
+            campos.push("estado_posventa = ?", "fecha_actualizacion_posventa = CURRENT_TIMESTAMP");
+            valores.push(estadoPosventa);
+        }
+
+        await actualizarCamposTransicion(
+            tx,
+            cotizacion.id,
+            campos,
+            valores
+        );
+
+        if (fechaAlta) {
+            await registrarHistorialPosventa(
+                tx,
+                cotizacion,
+                cotizacion.estado_posventa,
+                estadoPosventa,
+                fechaAlta,
+                req
+            );
+            await sincronizarTareasPosventa(tx, cotizacion, fechaAlta);
+            await cerrarTareasPosventa(tx, cotizacion.id, estadoPosventa);
+        }
+
+        return {
+            estado: "Afiliado",
+            etapa_pipeline: "Afiliados",
+            fecha_alta: fechaAlta,
+            requiere_fecha_alta: !fechaAlta,
+            ...calcularSeguimientoPosventa(fechaAlta, estadoPosventa),
+            estado_posventa: estadoPosventa
+        };
+    }
+
+    if (estadoSolicitado !== undefined) {
+        campos.push("estado = ?");
+        valores.push(estadoSolicitado);
+
+        if (fechaSeguimiento !== undefined) {
+            campos.push("fecha_seguimiento = ?");
+            valores.push(fechaSeguimiento);
+        }
+
+        if (esEstadoCierreNegativo(estadoSolicitado)) {
+            campos.push("etapa_pipeline = ?");
+            valores.push(null);
+        } else if (cotizacion.etapa_pipeline === "Afiliados") {
+            campos.push("etapa_pipeline = ?");
+            valores.push(etapaCompatibleConEstado(estadoSolicitado));
+        }
+
+        await actualizarCamposTransicion(
+            tx,
+            cotizacion.id,
+            campos,
+            valores
+        );
+
+        return {
+            estado: estadoSolicitado,
+            etapa_pipeline: esEstadoCierreNegativo(estadoSolicitado)
+                ? null
+                : cotizacion.etapa_pipeline === "Afiliados"
+                    ? etapaCompatibleConEstado(estadoSolicitado)
+                    : cotizacion.etapa_pipeline
+        };
+    }
+
+    if (etapaSolicitada !== undefined) {
+        const estado = cotizacion.estado === "Afiliado"
+            ? estadoCompatibleConEtapa(etapaSolicitada)
+            : cotizacion.estado;
+
+        campos.push("etapa_pipeline = ?");
+        valores.push(etapaSolicitada);
+
+        if (estado !== cotizacion.estado) {
+            campos.push("estado = ?");
+            valores.push(estado);
+        }
+
+        await actualizarCamposTransicion(
+            tx,
+            cotizacion.id,
+            campos,
+            valores
+        );
+
+        return {
+            estado,
+            etapa_pipeline: etapaSolicitada
+        };
+    }
+
+    return {
+        estado: cotizacion.estado,
+        etapa_pipeline: cotizacion.etapa_pipeline
+    };
+}
+
+function detalleCalculadoPosventa(cotizacion) {
+    const estado = cotizacion.estado_posventa
+        || (cotizacion.fecha_alta ? "en_seguimiento" : null);
+
+    return {
+        ...calcularSeguimientoPosventa(
+            cotizacion.fecha_alta,
+            estado || "en_seguimiento"
+        ),
+        estado_posventa: estado
+    };
+}
+
+async function obtenerDetallePosventa(req) {
+    const cotizacion = await obtenerCotizacionPermitida(req, req.params.id);
+    const aplica = cotizacion.estado === "Afiliado"
+        && cotizacion.etapa_pipeline === "Afiliados";
+
+    if (!aplica) {
+        return {
+            aplica: false,
+            puede_editar: true
+        };
+    }
+
+    const [proximaTarea, historial] = await Promise.all([
+        dbGetAsync(
+            `
+            SELECT id, titulo, fecha, hora, estado
+            FROM tareas_crm
+            WHERE cotizacion_id = ?
+              AND clave_automatica IS NOT NULL
+              AND estado = 'pendiente'
+            ORDER BY fecha ASC, hora ASC, id ASC
+            LIMIT 1
+            `,
+            [cotizacion.id]
+        ),
+        dbAllAsync(
+            `
+            SELECT
+                id,
+                estado_anterior,
+                estado_nuevo,
+                fecha_alta,
+                usuario,
+                fecha
+            FROM cotizaciones_posventa_historial
+            WHERE cotizacion_id = ?
+            ORDER BY fecha DESC, id DESC
+            `,
+            [cotizacion.id]
+        )
+    ]);
+
+    return {
+        aplica: true,
+        puede_editar: true,
+        cotizacion_id: cotizacion.id,
+        fecha_alta: cotizacion.fecha_alta,
+        etapa_pipeline: cotizacion.etapa_pipeline,
+        requiere_fecha_alta: !cotizacion.fecha_alta,
+        proxima_tarea: proximaTarea || null,
+        historial,
+        ...detalleCalculadoPosventa(cotizacion)
+    };
+}
+
+async function resolverClienteTarea(req, cotizacionId, clienteId, tx) {
+    const cotizacion = await obtenerCotizacionPermitida(req, cotizacionId, tx);
+
+    if (cotizacion) {
+        return {
+            cotizacion_id: cotizacion.id,
+            cliente_id: cotizacion.cliente_id || null
+        };
+    }
+
+    if (!clienteId) {
+        return {
+            cotizacion_id: null,
+            cliente_id: null
+        };
+    }
+
+    if (!/^\d+$/.test(String(clienteId))) {
+        throw errorHttp(400, "Cliente inválido");
+    }
+
+    const cliente = await tx.get(
+        "SELECT id FROM clientes WHERE id = ?",
+        [clienteId]
+    );
+
+    if (!cliente) {
+        throw errorHttp(404, "Cliente no encontrado");
+    }
+
+    return {
+        cotizacion_id: null,
+        cliente_id: cliente.id
+    };
+}
+
+function normalizarTareaBody(body, parcial = false) {
+    const tarea = {
+        titulo: body.titulo === undefined ? undefined : String(body.titulo || "").trim(),
+        descripcion: body.descripcion === undefined ? undefined : String(body.descripcion || "").trim(),
+        fecha: body.fecha === undefined ? undefined : String(body.fecha || "").trim(),
+        hora: body.hora === undefined ? undefined : String(body.hora || "").trim(),
+        tipo: body.tipo === undefined ? undefined : String(body.tipo || "").trim(),
+        estado: body.estado === undefined ? undefined : String(body.estado || "").trim()
+    };
+
+    if (!parcial || tarea.titulo !== undefined) {
+        if (!tarea.titulo) throw errorHttp(400, "El título es obligatorio");
+    }
+
+    if (!parcial || tarea.fecha !== undefined) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(tarea.fecha || "")) {
+            throw errorHttp(400, "Fecha inválida");
+        }
+    }
+
+    if (tarea.hora && !/^\d{2}:\d{2}$/.test(tarea.hora)) {
+        throw errorHttp(400, "Hora inválida");
+    }
+
+    if (!parcial && !tarea.tipo) tarea.tipo = "tarea";
+    if (!parcial && !tarea.estado) tarea.estado = "pendiente";
+
+    if (tarea.tipo !== undefined && !TIPOS_TAREA_CRM.includes(tarea.tipo)) {
+        throw errorHttp(400, "Tipo inválido");
+    }
+
+    if (tarea.estado !== undefined && !ESTADOS_TAREA_CRM.includes(tarea.estado)) {
+        throw errorHttp(400, "Estado inválido");
+    }
+
+    return tarea;
+}
+
+function selectTareasCrm() {
+    return `
+        SELECT
+            tareas_crm.*,
+            cotizaciones.nombre AS cotizacion_nombre,
+            cotizaciones.plan AS cotizacion_plan,
+            cotizaciones.celular AS cotizacion_celular,
+            cotizaciones.vendedora AS cotizacion_vendedora,
+            COALESCE(NULLIF(cotizaciones.etapa_pipeline, ''), 'Nuevos') AS etapa_pipeline,
+            clientes.nombre AS cliente_nombre
+        FROM tareas_crm
+        LEFT JOIN cotizaciones
+            ON cotizaciones.id = tareas_crm.cotizacion_id
+        LEFT JOIN clientes
+            ON clientes.id = tareas_crm.cliente_id
+    `;
+}
+
+async function obtenerEstadisticasInicio(req) {
+    const rango = rangoMesActual();
+    const filtro = filtroCotizacionesPorRol(req);
+    const whereRol = filtro.sql ? `AND ${filtro.sql}` : "";
+    const paramsRol = filtro.params;
+
+    const cotizacionesMes = await dbGetAsync(
+        `
+        SELECT COUNT(*) AS total
+        FROM cotizaciones
+        WHERE date(fecha) >= date(?)
+          AND date(fecha) < date(?)
+          ${whereRol}
+        `,
+        [rango.inicio, rango.fin, ...paramsRol]
+    );
+
+    const nuevosClientesMes = await dbGetAsync(
+        `
+        SELECT COUNT(DISTINCT cliente_id) AS total
+        FROM cotizaciones
+        WHERE cliente_id IS NOT NULL
+          AND date(fecha) >= date(?)
+          AND date(fecha) < date(?)
+          ${whereRol}
+        `,
+        [rango.inicio, rango.fin, ...paramsRol]
+    );
+
+    const afiliadosMes = await dbGetAsync(
+        `
+        SELECT COUNT(*) AS total
+        FROM cotizaciones
+        WHERE ${ESTADO_COTIZACION_SQL} = 'Afiliado'
+          AND date(fecha) >= date(?)
+          AND date(fecha) < date(?)
+          ${whereRol}
+        `,
+        [rango.inicio, rango.fin, ...paramsRol]
+    );
+
+    const seguimientosParams = req.user.rol === "admin"
+        ? [rango.hoy, rango.hoy]
+        : [rango.hoy, req.user.usuario, rango.hoy, req.user.usuario];
+    const seguimientosWhereTareas = req.user.rol === "admin"
+        ? ""
+        : "AND tareas_crm.usuario_responsable = ?";
+    const seguimientosWhereCotizaciones = req.user.rol === "admin"
+        ? ""
+        : "AND cotizaciones.vendedora = ?";
+    const seguimientosPendientes = await dbGetAsync(
+        `
+        SELECT COUNT(*) AS total
+        FROM (
+            SELECT
+                CASE
+                    WHEN tareas_crm.cotizacion_id IS NOT NULL THEN 'cot-' || tareas_crm.cotizacion_id
+                    ELSE 'task-' || tareas_crm.id
+                END AS clave
+            FROM tareas_crm
+            WHERE tareas_crm.estado = 'pendiente'
+              AND tareas_crm.tipo = 'seguimiento'
+              AND date(tareas_crm.fecha) <= date(?)
+              ${seguimientosWhereTareas}
+
+            UNION
+
+            SELECT 'cot-' || cotizaciones.id AS clave
+            FROM cotizaciones
+            WHERE cotizaciones.fecha_seguimiento IS NOT NULL
+              AND date(cotizaciones.fecha_seguimiento) <= date(?)
+              ${seguimientosWhereCotizaciones}
+        ) pendientes
+        `,
+        seguimientosParams
+    );
+
+    return {
+        cotizaciones_mes: Number(cotizacionesMes?.total || 0),
+        nuevos_clientes_mes: Number(nuevosClientesMes?.total || 0),
+        seguimientos_pendientes: Number(seguimientosPendientes?.total || 0),
+        afiliados_mes: Number(afiliadosMes?.total || 0),
+        comisiones_estimadas_mes: null
+    };
+}
+
+async function obtenerPipelineInicio(req) {
+    const condiciones = [OPORTUNIDAD_ACTIVA_SQL];
+    const parametros = [];
+
+    agregarFiltroRol(req, condiciones, parametros);
+
+    const rows = await dbAllAsync(
+        `
+        SELECT
+            cotizaciones.id,
+            cotizaciones.cliente_id,
+            cotizaciones.nombre,
+            cotizaciones.celular,
+            cotizaciones.plan,
+            cotizaciones.fecha,
+            cotizaciones.fecha_seguimiento,
+            cotizaciones.vendedora,
+            cotizaciones.fecha_alta,
+            cotizaciones.estado_posventa,
+            ${ESTADO_COTIZACION_SQL} AS estado,
+            COALESCE(NULLIF(cotizaciones.etapa_pipeline, ''), 'Nuevos') AS etapa_pipeline
+        FROM cotizaciones
+        ${condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : ""}
+        ORDER BY cotizaciones.fecha DESC
+        `,
+        parametros
+    );
+
+    return ETAPAS_PIPELINE.map(etapa => ({
+        etapa,
+        cotizaciones: rows
+            .filter(row => normalizarEtapaPipeline(row.etapa_pipeline) === etapa)
+            .map(row => ({
+                ...row,
+                etapa_pipeline: normalizarEtapaPipeline(row.etapa_pipeline),
+                ...(row.fecha_alta || row.estado_posventa
+                    ? detalleCalculadoPosventa(row)
+                    : {})
+            }))
+    }));
+}
+
+async function obtenerTareasInicio(req, limite = 50) {
+    const condiciones = [];
+    const parametros = [];
+
+    if (req.user.rol !== "admin") {
+        condiciones.push("tareas_crm.usuario_responsable = ?");
+        parametros.push(req.user.usuario);
+    }
+
+    const rows = await dbAllAsync(
+        `
+        ${selectTareasCrm()}
+        ${condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : ""}
+        ORDER BY
+            CASE tareas_crm.estado WHEN 'pendiente' THEN 0 ELSE 1 END,
+            tareas_crm.fecha ASC,
+            tareas_crm.hora ASC,
+            tareas_crm.id DESC
+        LIMIT ?
+        `,
+        [...parametros, limite]
+    );
+
+    return rows.map(row => ({
+        ...row,
+        etapa_pipeline: row.cotizacion_id
+            ? normalizarEtapaPipeline(row.etapa_pipeline)
+            : null
+    }));
+}
+
+app.get("/inicio/resumen", verificarToken, async (req, res) => {
+    try {
+        const [estadisticas, pipeline, tareas] = await Promise.all([
+            obtenerEstadisticasInicio(req),
+            obtenerPipelineInicio(req),
+            obtenerTareasInicio(req, 60)
+        ]);
+
+        res.json({
+            estadisticas,
+            pipeline,
+            tareas,
+            etapas: ETAPAS_PIPELINE
+        });
+    } catch (error) {
+        res.status(500).json({ error: "No se pudo cargar el inicio" });
+    }
+});
+
+app.get("/pipeline", verificarToken, async (req, res) => {
+    try {
+        res.json(await obtenerPipelineInicio(req));
+    } catch (error) {
+        res.status(500).json({ error: "No se pudo cargar el pipeline" });
+    }
+});
+
+app.put("/cotizaciones/:id/etapa-pipeline", verificarToken, async (req, res) => {
+    const etapa = normalizarEtapaPipeline(req.body.etapa_pipeline);
+
+    if (!ETAPAS_PIPELINE.includes(String(req.body.etapa_pipeline || "").trim())) {
+        return res.status(400).json({ error: "Etapa inválida" });
+    }
+
+    try {
+        const resultado = await db.transaction(async tx => {
+            const cotizacion = await obtenerCotizacionPermitida(
+                req,
+                req.params.id,
+                tx
+            );
+
+            return aplicarTransicionComercial(tx, req, cotizacion, {
+                etapaSolicitada: etapa
+            });
+        });
+
+        res.json({ success: true, ...resultado });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo actualizar la etapa"
+        });
+    }
+});
+
+app.get("/cotizaciones/:id/posventa", verificarToken, async (req, res) => {
+    try {
+        res.json(await obtenerDetallePosventa(req));
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status
+                ? error.message
+                : "No se pudo cargar el seguimiento de posventa"
+        });
+    }
+});
+
+app.put("/cotizaciones/:id/posventa", verificarToken, async (req, res) => {
+    const fechaAltaSolicitada = req.body.fecha_alta === undefined
+        ? undefined
+        : String(req.body.fecha_alta || "").trim();
+    const estadoSolicitado = req.body.estado_posventa === undefined
+        ? undefined
+        : String(req.body.estado_posventa || "").trim();
+
+    if (
+        fechaAltaSolicitada !== undefined
+        && !esFechaIsoValida(fechaAltaSolicitada)
+    ) {
+        return res.status(400).json({ error: "Fecha de alta inválida" });
+    }
+
+    if (
+        estadoSolicitado !== undefined
+        && !ESTADOS_POSVENTA.includes(estadoSolicitado)
+    ) {
+        return res.status(400).json({ error: "Estado de posventa inválido" });
+    }
+
+    try {
+        await db.transaction(async tx => {
+            const cotizacion = await obtenerCotizacionPermitida(
+                req,
+                req.params.id,
+                tx
+            );
+            const aplica = cotizacion.estado === "Afiliado"
+                && cotizacion.etapa_pipeline === "Afiliados";
+
+            if (!aplica) {
+                throw errorHttp(
+                    400,
+                    "La cotización todavía no se encuentra en Afiliados"
+                );
+            }
+
+            const fechaAlta = fechaAltaSolicitada ?? cotizacion.fecha_alta;
+            const estadoPosventa = estadoSolicitado
+                ?? cotizacion.estado_posventa
+                ?? "en_seguimiento";
+
+            if (!fechaAlta) {
+                throw errorHttp(400, "La fecha de alta es obligatoria");
+            }
+
+            await tx.run(
+                `
+                UPDATE cotizaciones
+                SET
+                    fecha_alta = ?,
+                    estado_posventa = ?,
+                    fecha_actualizacion_posventa = CURRENT_TIMESTAMP
+                WHERE id = ?
+                `,
+                [fechaAlta, estadoPosventa, cotizacion.id]
+            );
+
+            await registrarHistorialPosventa(
+                tx,
+                cotizacion,
+                cotizacion.estado_posventa,
+                estadoPosventa,
+                fechaAlta,
+                req
+            );
+            await sincronizarTareasPosventa(tx, cotizacion, fechaAlta);
+            await cerrarTareasPosventa(
+                tx,
+                cotizacion.id,
+                estadoPosventa
+            );
+        });
+
+        res.json({
+            success: true,
+            ...(await obtenerDetallePosventa(req))
+        });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status
+                ? error.message
+                : "No se pudo actualizar el seguimiento de posventa"
+        });
+    }
+});
+
+app.get("/tareas", verificarToken, async (req, res) => {
+    const condiciones = [];
+    const parametros = [];
+
+    if (req.user.rol !== "admin") {
+        condiciones.push("tareas_crm.usuario_responsable = ?");
+        parametros.push(req.user.usuario);
+    }
+
+    if (req.query.estado && !ESTADOS_TAREA_CRM.includes(String(req.query.estado))) {
+        return res.status(400).json({ error: "Estado de tarea inválido" });
+    }
+
+    if (req.query.estado) {
+        condiciones.push("tareas_crm.estado = ?");
+        parametros.push(String(req.query.estado));
+    }
+
+    if (req.query.tipo && !TIPOS_TAREA_CRM.includes(String(req.query.tipo))) {
+        return res.status(400).json({ error: "Tipo de tarea inválido" });
+    }
+
+    if (req.query.tipo) {
+        condiciones.push("tareas_crm.tipo = ?");
+        parametros.push(String(req.query.tipo));
+    }
+
+    if (req.query.fecha) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(req.query.fecha))) {
+            return res.status(400).json({ error: "Fecha inválida" });
+        }
+
+        condiciones.push("date(tareas_crm.fecha) = date(?)");
+        parametros.push(String(req.query.fecha));
+    }
+
+    for (const campo of ["fecha_desde", "fecha_hasta"]) {
+        if (
+            req.query[campo]
+            && !/^\d{4}-\d{2}-\d{2}$/.test(String(req.query[campo]))
+        ) {
+            return res.status(400).json({ error: "Rango de fechas inválido" });
+        }
+    }
+
+    if (
+        req.query.fecha_desde
+        && req.query.fecha_hasta
+        && String(req.query.fecha_desde) > String(req.query.fecha_hasta)
+    ) {
+        return res.status(400).json({ error: "Rango de fechas inválido" });
+    }
+
+    if (req.query.fecha_desde) {
+        condiciones.push("date(tareas_crm.fecha) >= date(?)");
+        parametros.push(String(req.query.fecha_desde));
+    }
+
+    if (req.query.fecha_hasta) {
+        condiciones.push("date(tareas_crm.fecha) <= date(?)");
+        parametros.push(String(req.query.fecha_hasta));
+    }
+
+    if (req.query.mes) {
+        const rango = rangoMesDesdeQuery(req.query.mes);
+        condiciones.push("date(tareas_crm.fecha) >= date(?)");
+        condiciones.push("date(tareas_crm.fecha) < date(?)");
+        parametros.push(rango.inicio, rango.fin);
+    }
+
+    if (req.query.cliente) {
+        condiciones.push(`
+            LOWER(
+                COALESCE(
+                    NULLIF(clientes.nombre, ''),
+                    NULLIF(cotizaciones.nombre, ''),
+                    ''
+                )
+            ) LIKE LOWER(?)
+        `);
+        parametros.push(`%${String(req.query.cliente).trim()}%`);
+    }
+
+    if (req.query.cotizacion_id) {
+        if (!/^\d+$/.test(String(req.query.cotizacion_id))) {
+            return res.status(400).json({ error: "Cotización inválida" });
+        }
+
+        condiciones.push("tareas_crm.cotizacion_id = ?");
+        parametros.push(String(req.query.cotizacion_id));
+    }
+
+    if (req.query.etapa_pipeline) {
+        const etapa = String(req.query.etapa_pipeline).trim();
+
+        if (!ETAPAS_PIPELINE.includes(etapa)) {
+            return res.status(400).json({ error: "Etapa inválida" });
+        }
+
+        condiciones.push(`
+            COALESCE(NULLIF(cotizaciones.etapa_pipeline, ''), 'Nuevos') = ?
+        `);
+        parametros.push(etapa);
+    }
+
+    if (req.query.responsable && req.user.rol === "admin") {
+        condiciones.push("LOWER(tareas_crm.usuario_responsable) LIKE LOWER(?)");
+        parametros.push(`%${String(req.query.responsable).trim()}%`);
+    }
+
+    try {
+        const rows = await dbAllAsync(
+            `
+            ${selectTareasCrm()}
+            ${condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : ""}
+            ORDER BY
+                tareas_crm.fecha ASC,
+                CASE
+                    WHEN tareas_crm.hora IS NULL
+                        OR CAST(tareas_crm.hora AS TEXT) = '' THEN 1
+                    ELSE 0
+                END ASC,
+                tareas_crm.hora ASC,
+                tareas_crm.id DESC
+            `,
+            parametros
+        );
+
+        res.json(rows.map(row => ({
+            ...row,
+            etapa_pipeline: row.cotizacion_id
+                ? normalizarEtapaPipeline(row.etapa_pipeline)
+                : null
+        })));
+    } catch (error) {
+        res.status(500).json({ error: "No se pudieron cargar las tareas" });
+    }
+});
+
+app.post("/tareas", verificarToken, async (req, res) => {
+    try {
+        const tarea = normalizarTareaBody(req.body);
+
+        const resultado = await db.transaction(async tx => {
+            const usuario = await obtenerUsuarioAutenticado(req, tx);
+            const vinculo = await resolverClienteTarea(
+                req,
+                req.body.cotizacion_id || null,
+                req.body.cliente_id || null,
+                tx
+            );
+
+            return tx.run(
+                `
+                INSERT INTO tareas_crm
+                (
+                    titulo,
+                    descripcion,
+                    fecha,
+                    hora,
+                    tipo,
+                    estado,
+                    usuario_responsable_id,
+                    usuario_responsable,
+                    cotizacion_id,
+                    cliente_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `,
+                [
+                    tarea.titulo,
+                    tarea.descripcion || null,
+                    tarea.fecha,
+                    tarea.hora || null,
+                    tarea.tipo,
+                    tarea.estado,
+                    usuario?.id || null,
+                    req.user.usuario,
+                    vinculo.cotizacion_id,
+                    vinculo.cliente_id
+                ]
+            );
+        });
+
+        res.json({ success: true, id: resultado.lastID });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo guardar la tarea"
+        });
+    }
+});
+
+app.put("/tareas/:id", verificarToken, async (req, res) => {
+    if (!/^\d+$/.test(String(req.params.id))) {
+        return res.status(400).json({ error: "Tarea inválida" });
+    }
+
+    try {
+        const tarea = normalizarTareaBody(req.body, true);
+
+        await db.transaction(async tx => {
+            const actual = await tx.get(
+                "SELECT * FROM tareas_crm WHERE id = ?",
+                [req.params.id]
+            );
+
+            if (!actual) throw errorHttp(404, "Tarea no encontrada");
+            if (req.user.rol !== "admin" && actual.usuario_responsable !== req.user.usuario) {
+                throw errorHttp(403, "No autorizado");
+            }
+
+            const cambiaCotizacion = Object.prototype.hasOwnProperty.call(req.body, "cotizacion_id");
+            const cambiaCliente = Object.prototype.hasOwnProperty.call(req.body, "cliente_id");
+            const vinculo = cambiaCotizacion || cambiaCliente
+                ? await resolverClienteTarea(
+                    req,
+                    req.body.cotizacion_id || null,
+                    req.body.cliente_id || null,
+                    tx
+                )
+                : {
+                    cotizacion_id: actual.cotizacion_id,
+                    cliente_id: actual.cliente_id
+                };
+
+            await tx.run(
+                `
+                UPDATE tareas_crm
+                SET
+                    titulo = ?,
+                    descripcion = ?,
+                    fecha = ?,
+                    hora = ?,
+                    tipo = ?,
+                    estado = ?,
+                    cotizacion_id = ?,
+                    cliente_id = ?,
+                    fecha_actualizacion = CURRENT_TIMESTAMP
+                WHERE id = ?
+                `,
+                [
+                    tarea.titulo ?? actual.titulo,
+                    tarea.descripcion ?? actual.descripcion,
+                    tarea.fecha ?? actual.fecha,
+                    tarea.hora ?? actual.hora,
+                    tarea.tipo ?? actual.tipo,
+                    tarea.estado ?? actual.estado,
+                    vinculo.cotizacion_id,
+                    vinculo.cliente_id,
+                    req.params.id
+                ]
+            );
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo actualizar la tarea"
+        });
+    }
+});
+
+app.put("/tareas/:id/realizada", verificarToken, async (req, res) => {
+    if (!/^\d+$/.test(String(req.params.id))) {
+        return res.status(400).json({ error: "Tarea inválida" });
+    }
+
+    try {
+        const condiciones = ["id = ?"];
+        const parametros = [req.params.id];
+
+        if (req.user.rol !== "admin") {
+            condiciones.push("usuario_responsable = ?");
+            parametros.push(req.user.usuario);
+        }
+
+        const resultado = await dbRunAsync(
+            `
+            UPDATE tareas_crm
+            SET estado = 'realizada',
+                fecha_actualizacion = CURRENT_TIMESTAMP
+            WHERE ${condiciones.join(" AND ")}
+            `,
+            parametros
+        );
+
+        if (!resultado.changes) {
+            return res.status(404).json({ error: "Tarea no encontrada" });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: "No se pudo actualizar la tarea" });
+    }
+});
+
+app.put("/tareas/:id/cancelar", verificarToken, async (req, res) => {
+    if (!/^\d+$/.test(String(req.params.id))) {
+        return res.status(400).json({ error: "Tarea inválida" });
+    }
+
+    try {
+        const condiciones = ["id = ?"];
+        const parametros = [req.params.id];
+
+        if (req.user.rol !== "admin") {
+            condiciones.push("usuario_responsable = ?");
+            parametros.push(req.user.usuario);
+        }
+
+        const resultado = await dbRunAsync(
+            `
+            UPDATE tareas_crm
+            SET estado = 'cancelada',
+                fecha_actualizacion = CURRENT_TIMESTAMP
+            WHERE ${condiciones.join(" AND ")}
+            `,
+            parametros
+        );
+
+        if (!resultado.changes) {
+            return res.status(404).json({ error: "Tarea no encontrada" });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: "No se pudo cancelar la tarea" });
+    }
+});
+
+app.get("/calendario", verificarToken, async (req, res) => {
+    const rango = rangoMesDesdeQuery(req.query.mes);
+    const condiciones = [
+        "date(tareas_crm.fecha) >= date(?)",
+        "date(tareas_crm.fecha) < date(?)"
+    ];
+    const parametros = [rango.inicio, rango.fin];
+
+    if (req.user.rol !== "admin") {
+        condiciones.push("tareas_crm.usuario_responsable = ?");
+        parametros.push(req.user.usuario);
+    }
+
+    try {
+        const tareas = await dbAllAsync(
+            `
+            ${selectTareasCrm()}
+            WHERE ${condiciones.join(" AND ")}
+            ORDER BY tareas_crm.fecha ASC, tareas_crm.hora ASC
+            `,
+            parametros
+        );
+
+        const dias = tareas.reduce((grupo, tarea) => {
+            const fecha = String(tarea.fecha).slice(0, 10);
+
+            if (!grupo[fecha]) grupo[fecha] = [];
+
+            grupo[fecha].push({
+                id: tarea.id,
+                titulo: tarea.titulo,
+                tipo: tarea.tipo,
+                estado: tarea.estado,
+                etapa_pipeline: tarea.cotizacion_id
+                    ? normalizarEtapaPipeline(tarea.etapa_pipeline)
+                    : null
+            });
+
+            return grupo;
+        }, {});
+
+        res.json({
+            mes: req.query.mes || null,
+            dias
+        });
+    } catch (error) {
+        res.status(500).json({ error: "No se pudo cargar el calendario" });
+    }
+});
+
+app.put("/cotizaciones/:id/seguimiento", verificarToken, async (req, res) => {
     const id = req.params.id;
     const estado = normalizarEstadoCotizacion(req.body.estado);
     const fechaSeguimiento = req.body.fecha_seguimiento || null;
@@ -2276,41 +3807,25 @@ app.put("/cotizaciones/:id/seguimiento", verificarToken, (req, res) => {
         return res.status(400).json({ error: "Fecha de seguimiento inválida" });
     }
 
-    db.get(
-        "SELECT vendedora FROM cotizaciones WHERE id = ?",
-        [id],
-        (err, cotizacion) => {
-            if (err) return res.status(500).json(err);
+    try {
+        const resultado = await db.transaction(async tx => {
+            const cotizacion = await obtenerCotizacionPermitida(req, id, tx);
 
-            if (!cotizacion) {
-                return res.status(404).json({ error: "Cotización no encontrada" });
-            }
+            return aplicarTransicionComercial(tx, req, cotizacion, {
+                estadoSolicitado: estado,
+                fechaSeguimiento
+            });
+        });
 
-            if (
-                req.user.rol !== "admin" &&
-                cotizacion.vendedora !== req.user.usuario
-            ) {
-                return res.status(403).json({ error: "No autorizado" });
-            }
-
-            db.run(
-                `
-                UPDATE cotizaciones
-                SET estado = ?, fecha_seguimiento = ?
-                WHERE id = ?
-                `,
-                [estado, fechaSeguimiento, id],
-                function (errorUpdate) {
-                    if (errorUpdate) return res.status(500).json(errorUpdate);
-
-                    res.json({ success: true });
-                }
-            );
-        }
-    );
+        res.json({ success: true, ...resultado });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo actualizar el seguimiento"
+        });
+    }
 });
 
-app.put("/cotizaciones/:id/anular", verificarToken, (req, res) => {
+app.put("/cotizaciones/:id/anular", verificarToken, async (req, res) => {
     if (req.user.rol !== "admin") {
         return res.status(403).json({ error: "No autorizado" });
     }
@@ -2321,23 +3836,21 @@ app.put("/cotizaciones/:id/anular", verificarToken, (req, res) => {
         return res.status(400).json({ error: "Id de cotizacion invalido" });
     }
 
-    db.get("SELECT id FROM cotizaciones WHERE id = ?", [id], (err, cotizacion) => {
-        if (err) return res.status(500).json(err);
+    try {
+        const resultado = await db.transaction(async tx => {
+            const cotizacion = await obtenerCotizacionPermitida(req, id, tx);
 
-        if (!cotizacion) {
-            return res.status(404).json({ error: "Cotizacion no encontrada" });
-        }
+            return aplicarTransicionComercial(tx, req, cotizacion, {
+                estadoSolicitado: "Anulada"
+            });
+        });
 
-        db.run(
-            "UPDATE cotizaciones SET estado = ? WHERE id = ?",
-            ["Anulada", id],
-            function (errorUpdate) {
-                if (errorUpdate) return res.status(500).json(errorUpdate);
-
-                res.json({ success: true });
-            }
-        );
-    });
+        res.json({ success: true, ...resultado });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo anular la cotización"
+        });
+    }
 });
 
 function consultarCotizacionesFiltradas(req, callback) {
@@ -2408,7 +3921,7 @@ app.get("/mis-cotizaciones", verificarToken, (req, res) => {
             primerasColumnas: resumirCotizacionesParaLog(rows)
         });
 
-        responderCotizacionesConArchivos(res, rows);
+        responderCotizacionesConArchivos(req, res, rows);
     });
 });
 

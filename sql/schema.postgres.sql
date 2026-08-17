@@ -54,7 +54,80 @@ CREATE TABLE IF NOT EXISTS cotizaciones (
     bonificacion TEXT,
     bonificacion_aportes TEXT,
     estado TEXT NOT NULL DEFAULT 'Nuevo',
-    fecha_seguimiento DATE
+    fecha_seguimiento DATE,
+    etapa_pipeline TEXT DEFAULT 'Nuevos',
+    fecha_alta DATE,
+    estado_posventa TEXT,
+    fecha_actualizacion_posventa TIMESTAMPTZ,
+    CONSTRAINT cotizaciones_etapa_pipeline_check
+        CHECK (etapa_pipeline IN (
+            'Nuevos',
+            'Contactados',
+            'Interesados',
+            'Documentación',
+            'Auditoría',
+            'Afiliados'
+        )),
+    CONSTRAINT cotizaciones_estado_posventa_check
+        CHECK (
+            estado_posventa IS NULL
+            OR estado_posventa IN (
+                'en_seguimiento',
+                'pago_3_meses',
+                'pendiente_mora',
+                'baja_mora'
+            )
+        )
+);
+
+CREATE TABLE IF NOT EXISTS tareas_crm (
+    id BIGSERIAL PRIMARY KEY,
+    titulo TEXT NOT NULL,
+    descripcion TEXT,
+    fecha DATE NOT NULL,
+    hora TIME,
+    tipo TEXT NOT NULL DEFAULT 'tarea',
+    estado TEXT NOT NULL DEFAULT 'pendiente',
+    usuario_responsable_id BIGINT REFERENCES usuarios(id) ON DELETE SET NULL,
+    usuario_responsable TEXT NOT NULL,
+    cotizacion_id BIGINT REFERENCES cotizaciones(id) ON DELETE SET NULL,
+    cliente_id BIGINT REFERENCES clientes(id) ON DELETE SET NULL,
+    clave_automatica TEXT,
+    fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT now(),
+    fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT tareas_crm_tipo_check
+        CHECK (tipo IN ('tarea', 'seguimiento', 'recordatorio')),
+    CONSTRAINT tareas_crm_estado_check
+        CHECK (estado IN ('pendiente', 'realizada', 'cancelada'))
+);
+
+CREATE TABLE IF NOT EXISTS cotizaciones_posventa_historial (
+    id BIGSERIAL PRIMARY KEY,
+    cotizacion_id BIGINT NOT NULL REFERENCES cotizaciones(id) ON DELETE CASCADE,
+    estado_anterior TEXT,
+    estado_nuevo TEXT NOT NULL,
+    fecha_alta DATE,
+    usuario_id BIGINT REFERENCES usuarios(id) ON DELETE SET NULL,
+    usuario TEXT NOT NULL,
+    fecha TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT cotizaciones_posventa_historial_estado_check
+        CHECK (
+            estado_nuevo IN (
+                'en_seguimiento',
+                'pago_3_meses',
+                'pendiente_mora',
+                'baja_mora'
+            )
+            AND (
+                estado_anterior IS NULL
+                OR estado_anterior IN (
+                    'en_seguimiento',
+                    'pago_3_meses',
+                    'pendiente_mora',
+                    'baja_mora'
+                )
+            )
+        )
 );
 
 CREATE TABLE IF NOT EXISTS archivos (
@@ -104,6 +177,18 @@ CREATE INDEX IF NOT EXISTS idx_cotizaciones_estado
 CREATE INDEX IF NOT EXISTS idx_cotizaciones_fecha
     ON cotizaciones (fecha);
 
+CREATE INDEX IF NOT EXISTS idx_cotizaciones_etapa_pipeline
+    ON cotizaciones (etapa_pipeline);
+
+CREATE INDEX IF NOT EXISTS idx_cotizaciones_etapa_vendedora
+    ON cotizaciones (etapa_pipeline, vendedora);
+
+CREATE INDEX IF NOT EXISTS idx_cotizaciones_fecha_alta
+    ON cotizaciones (fecha_alta);
+
+CREATE INDEX IF NOT EXISTS idx_cotizaciones_estado_posventa
+    ON cotizaciones (estado_posventa);
+
 CREATE INDEX IF NOT EXISTS idx_archivos_cotizacion_id
     ON archivos (cotizacion_id);
 
@@ -112,6 +197,28 @@ CREATE INDEX IF NOT EXISTS idx_comentarios_cotizacion_id
 
 CREATE INDEX IF NOT EXISTS idx_cotizacion_opciones_cotizacion_id
     ON cotizacion_opciones (cotizacion_id);
+
+CREATE INDEX IF NOT EXISTS idx_tareas_crm_responsable_id
+    ON tareas_crm (usuario_responsable_id);
+
+CREATE INDEX IF NOT EXISTS idx_tareas_crm_responsable_texto
+    ON tareas_crm (usuario_responsable);
+
+CREATE INDEX IF NOT EXISTS idx_tareas_crm_fecha_estado
+    ON tareas_crm (fecha, estado);
+
+CREATE INDEX IF NOT EXISTS idx_tareas_crm_cotizacion_id
+    ON tareas_crm (cotizacion_id);
+
+CREATE INDEX IF NOT EXISTS idx_tareas_crm_cliente_id
+    ON tareas_crm (cliente_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tareas_crm_posventa
+    ON tareas_crm (cotizacion_id, clave_automatica)
+    WHERE clave_automatica IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_posventa_historial_cotizacion_fecha
+    ON cotizaciones_posventa_historial (cotizacion_id, fecha DESC);
 
 CREATE INDEX IF NOT EXISTS idx_clientes_dni_normalizado
     ON clientes (dni_normalizado);

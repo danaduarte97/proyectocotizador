@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#1b4f72">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <title>ASIS Gesti&oacute;n Comercial</title>
+    <title>Gestión Comercial</title>
     <link rel="stylesheet" href="style.css">
 
 
@@ -23,17 +23,43 @@
 
     <div class="app">
 
+        <div class="topbar">
+            <button class="menu-btn" onclick="toggleMenu()">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+
+            <div class="topbar-brand">
+                <strong>Gestión Comercial</strong>
+                <span>Gestión de clientes, cotizaciones y seguimiento comercial</span>
+            </div>
+
+            <div class="user-menu">
+                <div id="usuarioLogueado" class="usuario-btn" onclick="toggleUserMenu()" role="button" tabindex="0"
+                    aria-haspopup="true" aria-label="Men&uacute; de usuario"></div>
+
+                <div id="userDropdown" class="user-dropdown">
+                    <button onclick="mostrarSeccion('perfil')">
+                        <img class="icono-menu" src="img/imgicon-password.png" alt="">
+                        <span>Cambiar contraseña</span>
+                    </button>
+
+                    <button onclick="logout()">
+                        <img class="icono-menu" src="img/imgicon-cerrar-sesion.png" alt="">
+                        <span>Cerrar sesión</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- SIDEBAR -->
         <aside class="sidebar" id="sidebar">
-
-            <div class="sidebar-logo">
-                <img src="img/logo-asismed-peque.png" alt="Asismed">
-            </div>
 
             <nav>
 
                 <button onclick="mostrarSeccion('inicio')">
-                    <img class="icono-menu" src="img/imgicon-busqueda.png" alt="">
+                    <img class="icono-menu" src="img/pagina-de-inicio.png" alt="">
                     <span>Inicio</span>
                 </button>
 
@@ -68,112 +94,263 @@
 
         <!-- CONTENIDO -->
         <main class="main">
-
-            <!-- TOPBAR -->
-            <div class="topbar">
-
-                <button class="menu-btn" onclick="toggleMenu()">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </button>
-
-                <div class="topbar-logo">
-
-                    <img src="img/logo-asismed.png" alt="Asismed">
-
-                </div>
-
-                <div class="user-menu">
-
-                    <div id="usuarioLogueado" class="usuario-btn" onclick="toggleUserMenu()"></div>
-
-                    <div id="userDropdown" class="user-dropdown">
-
-                        <button onclick="mostrarSeccion('perfil')">
-                            <img class="icono-menu" src="img/imgicon-password.png" alt="">
-                            <span>Cambiar contraseña</span>
-                        </button>
-
-                        <button onclick="logout()">
-                            <img class="icono-menu" src="img/imgicon-cerrar-sesion.png" alt="">
-                            <span>Cerrar sesión</span>
-                        </button>
-
-                    </div>
-
-                </div>
-
-            </div>
-
             <!-- SECCIÓN COTIZADOR -->
-            <header class="app-title">
-                <h1>ASIS Gesti&oacute;n Comercial</h1>
-                <p>Gesti&oacute;n de clientes, cotizaciones y seguimiento comercial</p>
-            </header>
-
             <section id="inicio" class="seccion">
 
                 <div class="inicio-shell">
-                    <div class="inicio-header">
-                        <div>
-                            <p id="inicioSaludo" class="inicio-saludo">Hola</p>
-                            <h2>Inicio</h2>
-                        </div>
+                    <section class="inicio-stats" id="inicioStats">
+                        <article class="inicio-stat-card">
+                            <span class="inicio-stat-icon inicio-stat-icon-cotizaciones" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                    <path d="M14 2v6h6M8 13h8M8 17h6" />
+                                </svg>
+                            </span>
+                            <span class="inicio-stat-copy">
+                                <strong id="statCotizacionesMes">&mdash;</strong>
+                                <small>Cotizaciones del mes</small>
+                            </span>
+                        </article>
+                        <article class="inicio-stat-card">
+                            <span class="inicio-stat-icon inicio-stat-icon-clientes" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                    <circle cx="9" cy="7" r="4" />
+                                    <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                                </svg>
+                            </span>
+                            <span class="inicio-stat-copy">
+                                <strong id="statClientesMes">&mdash;</strong>
+                                <small>Nuevos clientes</small>
+                            </span>
+                        </article>
+                        <article class="inicio-stat-card">
+                            <span class="inicio-stat-icon inicio-stat-icon-seguimientos" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="9" />
+                                    <path d="M12 7v5l3 2" />
+                                </svg>
+                            </span>
+                            <span class="inicio-stat-copy">
+                                <strong id="statSeguimientosPendientes">&mdash;</strong>
+                                <small>Seguimientos pendientes</small>
+                            </span>
+                        </article>
+                        <article class="inicio-stat-card">
+                            <span class="inicio-stat-icon inicio-stat-icon-afiliados" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                    <circle cx="9" cy="7" r="4" />
+                                    <path d="m16 11 2 2 4-4" />
+                                </svg>
+                            </span>
+                            <span class="inicio-stat-copy">
+                                <strong id="statAfiliadosMes">&mdash;</strong>
+                                <small>Afiliados del mes</small>
+                            </span>
+                        </article>
+                    </section>
+
+                    <div id="inicioEstado" class="inicio-status inicio-status-loading" role="status" aria-live="polite">
+                        Cargando informaci&oacute;n comercial...
                     </div>
 
-                    <div class="inicio-grid">
-                        <section class="inicio-panel inicio-panel-busqueda">
-                            <div class="form-section-header">
-                                <h3>Buscador r&aacute;pido de clientes</h3>
-                            </div>
-
-                            <div class="inicio-busqueda-form">
-                                <label class="field">
-                                    <span>DNI completo o tel&eacute;fono</span>
-                                    <input
-                                        type="text"
-                                        id="inicioBusquedaCliente"
-                                        placeholder="Buscar por DNI o tel&eacute;fono"
-                                    >
-                                </label>
-
-                                <button type="button" onclick="buscarClienteInicio()">
-                                    Buscar
+                    <div class="inicio-layout">
+                        <section class="inicio-panel inicio-panel-pipeline">
+                            <div class="inicio-section-bar">
+                                <h3>Seguimiento comercial</h3>
+                                <button type="button" class="inicio-refresh-btn" onclick="cargarInicioCrm()">
+                                    Actualizar
                                 </button>
                             </div>
 
-                            <div id="inicioResultadoCliente" class="inicio-resultados"></div>
+                            <div id="inicioPipeline" class="pipeline-board" aria-live="polite"></div>
                         </section>
 
-                        <section class="inicio-panel inicio-panel-calendario">
-                            <div class="form-section-header">
-                                <h3>Calendario</h3>
-                            </div>
+                        <aside class="inicio-side">
+                            <section class="inicio-panel inicio-panel-calendario">
+                                <div class="inicio-section-bar inicio-calendar-heading">
+                                    <h3>Calendario</h3>
+                                    <button type="button" class="inicio-hoy-btn" onclick="irHoyInicio()">Hoy</button>
+                                </div>
+                                <div class="inicio-calendar-nav">
+                                    <button type="button" class="inicio-icon-btn" onclick="cambiarMesInicio(-1)"
+                                        aria-label="Mes anterior">
+                                        &lsaquo;
+                                    </button>
+                                    <strong id="inicioMesCalendario"></strong>
+                                    <button type="button" class="inicio-icon-btn" onclick="cambiarMesInicio(1)"
+                                        aria-label="Mes siguiente">
+                                        &rsaquo;
+                                    </button>
+                                </div>
 
-                            <div class="inicio-placeholder">
-                                <strong>Seguimientos y recordatorios</strong>
-                                <span>Espacio preparado para la pr&oacute;xima etapa.</span>
-                            </div>
-                        </section>
+                                <div id="inicioCalendario" class="inicio-calendario"></div>
+                            </section>
+
+                            <section class="inicio-panel inicio-panel-tareas">
+                                <div class="inicio-section-bar">
+                                    <h3>Tareas y recordatorios</h3>
+                                    <button type="button" onclick="abrirFormularioTarea()">Crear tarea</button>
+                                </div>
+
+                                <div id="inicioTareasContexto" class="inicio-tareas-contexto" hidden>
+                                    <strong id="inicioTareasFecha"></strong>
+                                    <button type="button" class="btn-secundario" onclick="verResumenTareasInicio()">
+                                        Ver resumen
+                                    </button>
+                                </div>
+                                <div id="inicioTareas" class="inicio-tareas-lista"></div>
+                                <button type="button" class="inicio-ver-todas" onclick="abrirModalTodasTareas()">
+                                    Ver todas las tareas
+                                </button>
+                            </section>
+                        </aside>
                     </div>
+                </div>
 
-                    <section class="inicio-panel inicio-panel-pipeline">
-                        <div class="form-section-header">
-                            <h3>Pipeline comercial</h3>
+                <div id="inicioTareaModal" class="inicio-tarea-modal" hidden
+                    onclick="if (event.target === this) cerrarFormularioTarea()">
+                    <section class="inicio-tarea-dialog" role="dialog" aria-modal="true"
+                        aria-labelledby="inicioTareaModalTitulo">
+                        <div class="inicio-dialog-header">
+                            <div>
+                                <h3 id="inicioTareaModalTitulo">Nueva tarea</h3>
+                                <p>Organiz&aacute; una tarea, seguimiento o recordatorio.</p>
+                            </div>
+                            <button type="button" class="inicio-dialog-close" onclick="cerrarFormularioTarea()"
+                                aria-label="Cerrar formulario">&times;</button>
                         </div>
 
-                        <div class="pipeline-preview">
-                            <div>Nuevo</div>
-                            <div>Contactado</div>
-                            <div>Cotizado</div>
-                            <div>En seguimiento</div>
-                            <div>Afiliado</div>
-                            <div>No interesado</div>
+                        <div id="inicioFormularioTarea" class="inicio-tarea-form" hidden>
+                            <input type="hidden" id="tareaId">
+                            <input type="hidden" id="tareaEstado">
+                            <label>
+                                <span>T&iacute;tulo</span>
+                                <input type="text" id="tareaTitulo">
+                            </label>
+                            <label>
+                                <span>Descripci&oacute;n</span>
+                                <textarea id="tareaDescripcion" rows="2"></textarea>
+                            </label>
+                            <div class="inicio-form-grid">
+                                <label>
+                                    <span>Fecha</span>
+                                    <input type="date" id="tareaFecha">
+                                </label>
+                                <label>
+                                    <span>Hora</span>
+                                    <input type="time" id="tareaHora">
+                                </label>
+                            </div>
+                            <div class="inicio-form-grid">
+                                <label>
+                                    <span>Tipo</span>
+                                    <select id="tareaTipo">
+                                        <option value="tarea">Tarea</option>
+                                        <option value="seguimiento">Seguimiento</option>
+                                        <option value="recordatorio">Recordatorio</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Cotizaci&oacute;n</span>
+                                    <select id="tareaCotizacion"></select>
+                                </label>
+                            </div>
+                            <div class="inicio-form-actions">
+                                <button type="button" onclick="guardarTareaInicio()">Guardar</button>
+                                <button type="button" class="btn-secundario"
+                                    onclick="cerrarFormularioTarea()">Cancelar</button>
+                            </div>
                         </div>
                     </section>
                 </div>
 
+                <div id="todasTareasModal" class="todas-tareas-modal" hidden
+                    onclick="if (event.target === this) cerrarModalTodasTareas()">
+                    <section class="todas-tareas-dialog" role="dialog" aria-modal="true"
+                        aria-labelledby="todasTareasModalTitulo">
+                        <div class="inicio-dialog-header">
+                            <div>
+                                <h3 id="todasTareasModalTitulo">Todas las tareas</h3>
+                                <p>Consult&aacute; y filtr&aacute; el historial de tareas y recordatorios.</p>
+                            </div>
+                            <button type="button" class="inicio-dialog-close" onclick="cerrarModalTodasTareas()"
+                                aria-label="Cerrar todas las tareas">&times;</button>
+                        </div>
+
+                        <div class="todas-tareas-tabs" role="tablist" aria-label="Estado de las tareas">
+                            <button type="button" class="activo" data-estado-tareas="pendiente"
+                                onclick="cambiarEstadoModalTareas('pendiente')">
+                                Pendientes
+                            </button>
+                            <button type="button" data-estado-tareas="realizada"
+                                onclick="cambiarEstadoModalTareas('realizada')">
+                                Realizadas
+                            </button>
+                            <button type="button" data-estado-tareas="cancelada"
+                                onclick="cambiarEstadoModalTareas('cancelada')">
+                                Canceladas
+                            </button>
+                        </div>
+
+                        <div class="todas-tareas-filtros">
+                            <label>
+                                <span>Desde</span>
+                                <input type="date" id="filtroTareasDesde">
+                            </label>
+                            <label>
+                                <span>Hasta</span>
+                                <input type="date" id="filtroTareasHasta">
+                            </label>
+                            <label>
+                                <span>Tipo</span>
+                                <select id="filtroTareasTipo">
+                                    <option value="">Todos</option>
+                                    <option value="tarea">Tarea</option>
+                                    <option value="seguimiento">Seguimiento</option>
+                                    <option value="recordatorio">Recordatorio</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>Cliente</span>
+                                <input type="search" id="filtroTareasCliente" placeholder="Nombre">
+                            </label>
+                            <label>
+                                <span>Cotizaci&oacute;n</span>
+                                <input type="number" id="filtroTareasCotizacion" min="1" placeholder="N&uacute;mero">
+                            </label>
+                            <label>
+                                <span>Etapa</span>
+                                <select id="filtroTareasEtapa">
+                                    <option value="">Todas</option>
+                                    <option value="Nuevos">Nuevos</option>
+                                    <option value="Contactados">Contactados</option>
+                                    <option value="Interesados">Interesados</option>
+                                    <option value="Documentaci&oacute;n">Documentaci&oacute;n</option>
+                                    <option value="Auditor&iacute;a">Auditor&iacute;a</option>
+                                    <option value="Afiliados">Afiliados</option>
+                                </select>
+                            </label>
+                            <label id="filtroTareasResponsableGrupo" hidden>
+                                <span>Responsable</span>
+                                <input type="search" id="filtroTareasResponsable" placeholder="Usuaria">
+                            </label>
+                            <div class="todas-tareas-filtro-acciones">
+                                <button type="button" onclick="cargarModalTodasTareas()">Aplicar filtros</button>
+                                <button type="button" class="btn-secundario" onclick="limpiarFiltrosTodasTareas()">
+                                    Limpiar
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="todasTareasResultados" class="todas-tareas-resultados" aria-live="polite"></div>
+                    </section>
+                </div>
             </section>
 
             <section id="cotizador" class="seccion" style="display:none;">
@@ -279,12 +456,7 @@
                         <div class="form-block plan-option-card" id="opcionPlan2Block" hidden>
                             <h4>Plan y tipo de cobertura - opci&oacute;n 2</h4>
 
-                            <button
-                                type="button"
-                                id="btnQuitarOpcionPlan"
-                                onclick="ocultarOpcionPlan2()"
-                                hidden
-                            >
+                            <button type="button" id="btnQuitarOpcionPlan" onclick="ocultarOpcionPlan2()" hidden>
                                 Quitar opci&oacute;n 2
                             </button>
 
@@ -338,20 +510,11 @@
                         <div class="form-block plan-options-controls">
                             <h4>Opciones de plan</h4>
 
-                            <button
-                                type="button"
-                                id="btnAgregarOpcionPlan"
-                                onclick="mostrarOpcionPlan2()"
-                            >
+                            <button type="button" id="btnAgregarOpcionPlan" onclick="mostrarOpcionPlan2()">
                                 Agregar otra opci&oacute;n de plan
                             </button>
 
-                            <button
-                                type="button"
-                                id="btnQuitarOpcionPlanLegacy"
-                                onclick="ocultarOpcionPlan2()"
-                                hidden
-                            >
+                            <button type="button" id="btnQuitarOpcionPlanLegacy" onclick="ocultarOpcionPlan2()" hidden>
                                 Quitar opci&oacute;n 2
                             </button>
                         </div>
@@ -389,14 +552,9 @@
                                     <strong>Adjuntar imágenes</strong>
                                     <small>Podés subir hasta 5 imágenes JPG, PNG o WEBP</small>
                                 </label>
-                                <input
-                                    type="file"
-                                    id="adjuntoCotizacion"
-                                    name="imagenes"
-                                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                                    multiple
-                                    onchange="previsualizarAdjuntosCotizacion()"
-                                >
+                                <input type="file" id="adjuntoCotizacion" name="imagenes"
+                                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple
+                                    onchange="previsualizarAdjuntosCotizacion()">
                                 <div id="previewAdjuntosCotizacion" class="adjuntos-preview">
                                     <small>Sin archivos seleccionados</small>
                                 </div>
@@ -666,22 +824,14 @@
 
                         <label class="filtro-fecha">
                             <span>Desde</span>
-                            <input
-                                type="date"
-                                id="filtroFechaDesde"
-                                onchange="cargarMisCotizaciones()"
-                                aria-label="Fecha desde"
-                            >
+                            <input type="date" id="filtroFechaDesde" onchange="cargarMisCotizaciones()"
+                                aria-label="Fecha desde">
                         </label>
 
                         <label class="filtro-fecha">
                             <span>Hasta</span>
-                            <input
-                                type="date"
-                                id="filtroFechaHasta"
-                                onchange="cargarMisCotizaciones()"
-                                aria-label="Fecha hasta"
-                            >
+                            <input type="date" id="filtroFechaHasta" onchange="cargarMisCotizaciones()"
+                                aria-label="Fecha hasta">
                         </label>
 
                         <button type="button" onclick="limpiarFiltrosCotizaciones()">
@@ -705,6 +855,67 @@
 
         </main>
 
+    </div>
+
+    <!-- MODAL DETALLE DE COTIZACION -->
+    <div id="cotizacionDetalleModal" class="cotizacion-modal-overlay" hidden
+        onclick="manejarClickExteriorModalCotizacion(event)">
+        <section class="cotizacion-modal-panel" role="dialog" aria-modal="true"
+            aria-labelledby="cotizacionDetalleModalTitulo">
+            <header class="cotizacion-modal-header">
+                <div>
+                    <span>ASIS Gestión Comercial</span>
+                    <h2 id="cotizacionDetalleModalTitulo">Detalle de cotización</h2>
+                </div>
+                <button type="button" class="cotizacion-modal-cerrar" aria-label="Cerrar detalle" title="Cerrar"
+                    onclick="cerrarDetalleCotizacion()">
+                    &times;
+                </button>
+            </header>
+
+            <div id="cotizacionDetalleModalContenido" class="cotizacion-modal-body"></div>
+        </section>
+    </div>
+
+    <!-- MODAL FECHA DE ALTA POSVENTA -->
+    <div id="posventaFechaAltaModal" class="posventa-fecha-modal-overlay" hidden
+        onclick="if (event.target === this) cerrarModalFechaAltaPosventa()">
+        <section class="posventa-fecha-modal" role="dialog" aria-modal="true" aria-labelledby="posventaFechaAltaTitulo">
+            <header>
+                <div>
+                    <span>Seguimiento de posventa</span>
+                    <h2 id="posventaFechaAltaTitulo">Cargar fecha de alta</h2>
+                </div>
+                <button type="button" aria-label="Cerrar carga de fecha" onclick="cerrarModalFechaAltaPosventa()">
+                    &times;
+                </button>
+            </header>
+
+            <form onsubmit="guardarFechaAltaPosventa(event)">
+                <input type="hidden" id="posventaFechaAltaCotizacionId">
+
+                <p id="posventaFechaAltaDescripcion">
+                    Confirmá la fecha informada por Auditoría.
+                </p>
+
+                <label>
+                    Fecha de alta
+                    <input type="date" id="posventaFechaAltaInput" required>
+                </label>
+
+                <small>
+                    Al guardar se programarán los controles de la segunda y
+                    tercera cuota.
+                </small>
+
+                <div class="posventa-fecha-modal-actions">
+                    <button type="button" class="secondary-btn" onclick="cerrarModalFechaAltaPosventa()">
+                        Cancelar
+                    </button>
+                    <button type="submit">Guardar fecha</button>
+                </div>
+            </form>
+        </section>
     </div>
 
     <!-- TOAST -->
@@ -766,11 +977,7 @@
                     Cancelar
                 </button>
 
-                <button
-                    id="modalConfirmacionAccion"
-                    class="danger-btn"
-                    onclick="confirmarModalConfirmacion()"
-                >
+                <button id="modalConfirmacionAccion" class="danger-btn" onclick="confirmarModalConfirmacion()">
                     Eliminar
                 </button>
             </div>
