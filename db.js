@@ -25,7 +25,7 @@ function postgresSql(sql) {
 
 function withReturningId(sql) {
     if (
-        /^\s*INSERT\s+INTO\s+(cotizaciones|tareas_crm)\b/i.test(sql) &&
+        /^\s*INSERT\s+INTO\s+(cotizaciones|tareas_crm|primer_contacto_identidades|primer_contacto_gestiones)\b/i.test(sql) &&
         !/\bRETURNING\b/i.test(sql)
     ) {
         return `${sql} RETURNING id`;

@@ -4178,6 +4178,575 @@ async function crearUsuario() {
 }
 
 // =======================
+// =======================
+// PRIMER CONTACTO
+// =======================
+
+let primerContactoAnalisisIndividual = null;
+let primerContactoClaveIndividual = null;
+let primerContactoPreviewMultiple = [];
+let primerContactoClaveMultiple = null;
+const primerContactoDatosPorTelefono = new Map();
+
+function claveOperacionPrimerContacto(prefijo) {
+    const uuid = globalThis.crypto?.randomUUID?.()
+        || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    return `${prefijo}:${uuid}`.replace(/[^a-zA-Z0-9:_-]/g, "-");
+}
+
+function textoEstadoPrimerContacto(estado) {
+    return ({
+        nuevo: "Contacto nuevo",
+        existe_en_crm: "Ya existe en el Gestor Comercial",
+        contactado_por_otra: "Ya contactado por otra asesora",
+        contactado_por_mi: "Ya contactado por vos",
+        duplicado_tanda: "Duplicado en esta tanda",
+        invalido: "Número inválido"
+    })[estado] || "Contacto";
+}
+
+function claseEstadoPrimerContacto(estado) {
+    return `primer-contacto-estado primer-contacto-estado-${estado || "nuevo"}`;
+}
+
+function enlaceWhatsappPrimerContacto(telefono) {
+    const numero = normalizarTelefonoWhatsappArgentina(telefono);
+
+    if (!numero) return escaparHtml(telefono || "-");
+
+    return `
+        <a class="primer-contacto-whatsapp" href="https://wa.me/${numero}"
+            target="_blank" rel="noopener noreferrer">
+            ${escaparHtml(telefono || numero)}
+        </a>
+    `;
+}
+
+function detalleClientePrimerContacto(resultado) {
+    if (!resultado?.cliente) return "";
+
+    const cliente = resultado.cliente;
+
+    return `
+        <div class="primer-contacto-cliente">
+            <span>Cliente existente</span>
+            <strong>${escaparHtml(cliente.nombre || "Sin nombre")}</strong>
+            ${cliente.dni ? `<small>DNI ${escaparHtml(cliente.dni)}</small>` : ""}
+            <small>${Number(cliente.cantidad_cotizaciones || 0)} cotizaciones registradas</small>
+        </div>
+    `;
+}
+
+function renderAnalisisPrimerContacto(resultado, { acciones = true } = {}) {
+    const asesoras = (resultado.asesoras || []).map(escaparHtml).join(", ");
+    const historial = (resultado.historial || []).map(gestion => `
+        <li>
+            <span>${formatearFecha(gestion.fecha)}</span>
+            <strong>${escaparHtml(gestion.asesora || "-")}</strong>
+            ${gestion.observacion
+                ? `<small>${escaparHtml(gestion.observacion)}</small>`
+                : ""}
+        </li>
+    `).join("");
+    const telefonoCodificado = encodeURIComponent(
+        resultado.telefono_original || resultado.telefono_normalizado || ""
+    );
+
+    return `
+        <article class="primer-contacto-resumen">
+            <div class="primer-contacto-resumen-head">
+                <div>
+                    <span class="${claseEstadoPrimerContacto(resultado.estado)}">
+                        ${textoEstadoPrimerContacto(resultado.estado)}
+                    </span>
+                    <h3>${enlaceWhatsappPrimerContacto(
+                        resultado.telefono_original || resultado.telefono_normalizado
+                    )}</h3>
+                    ${resultado.nombre
+                        ? `<p>${escaparHtml(resultado.nombre)}</p>`
+                        : ""}
+                </div>
+                <strong>${Number(resultado.cantidad_contactos || 0)} contactos</strong>
+            </div>
+
+            ${resultado.ultimo_contacto
+                ? `<p>Último contacto: ${formatearFecha(resultado.ultimo_contacto)}</p>`
+                : "<p>Este número todavía no tiene gestiones.</p>"}
+            ${resultado.ultimo_contacto_propio
+                ? `<p>Tu último contacto: ${formatearFecha(resultado.ultimo_contacto_propio)}</p>`
+                : ""}
+            ${asesoras ? `<p>Asesoras: ${asesoras}</p>` : ""}
+            ${resultado.existe_en_crm ? `
+                <p class="primer-contacto-aviso-crm">
+                    Este número ya existe en el Gestor Comercial.
+                    ${Number(resultado.cantidad_cotizaciones_crm || 0)
+                        ? `${Number(resultado.cantidad_cotizaciones_crm)} cotización(es) relacionada(s).`
+                        : ""}
+                </p>
+            ` : ""}
+            ${detalleClientePrimerContacto(resultado)}
+
+            ${historial ? `
+                <details class="primer-contacto-historial">
+                    <summary>Ver historial</summary>
+                    <ol>${historial}</ol>
+                </details>
+            ` : ""}
+
+            ${acciones && resultado.valido !== false ? `
+                <div class="primer-contacto-card-actions">
+                    <button type="button" onclick="abrirNuevoPrimerContacto('${telefonoCodificado}')">
+                        ${resultado.ya_contactado_por_mi
+                            ? "Registrar nuevo contacto"
+                            : resultado.cantidad_contactos || resultado.existe_en_crm
+                                ? "Agregarme como asesora"
+                                : "Registrar contacto"}
+                    </button>
+                    <button type="button" class="secondary-btn"
+                        onclick="crearCotizacionDesdePrimerContacto('${telefonoCodificado}')">
+                        Crear cotización
+                    </button>
+                </div>
+            ` : ""}
+        </article>
+    `;
+}
+
+function guardarDatosPrimerContacto(resultado) {
+    if (!resultado?.telefono_normalizado) return;
+    primerContactoDatosPorTelefono.set(resultado.telefono_normalizado, resultado);
+}
+
+async function buscarPrimerContacto() {
+    const input = document.getElementById("primerContactoBuscarTelefono");
+    const contenedor = document.getElementById("primerContactoBusquedaResultado");
+    const telefono = input?.value.trim();
+
+    if (!telefono) {
+        contenedor.hidden = true;
+        contenedor.innerHTML = "";
+        return;
+    }
+
+    mostrarLoader();
+    try {
+        const res = await fetch(
+            `/primer-contacto/buscar?telefono=${encodeURIComponent(telefono)}`,
+            { headers: authHeaders() }
+        );
+        const datos = await res.json().catch(() => ({}));
+
+        if (await manejarError(res)) return;
+        if (!res.ok) {
+            mostrarToast(datos.error || "No se pudo buscar el teléfono", "error");
+            return;
+        }
+
+        guardarDatosPrimerContacto(datos);
+        contenedor.innerHTML = renderAnalisisPrimerContacto(datos);
+        contenedor.hidden = false;
+    } catch (error) {
+        mostrarToast("No se pudo buscar el teléfono", "error");
+    } finally {
+        ocultarLoader();
+    }
+}
+
+function agruparGestionesPrimerContacto(gestiones) {
+    const grupos = new Map();
+
+    gestiones.forEach(gestion => {
+        const clave = gestion.telefono_normalizado;
+        if (!grupos.has(clave)) grupos.set(clave, []);
+        grupos.get(clave).push(gestion);
+    });
+
+    return [...grupos.values()];
+}
+
+function renderGrupoPrimerContacto(gestiones) {
+    const principal = gestiones[0];
+    const telefonoCodificado = encodeURIComponent(
+        principal.telefono_original || principal.telefono_normalizado
+    );
+    const historial = gestiones.slice(0, 6).map(gestion => `
+        <li>
+            <span>${formatearFecha(gestion.fecha)}</span>
+            <strong>${escaparHtml(gestion.asesora || "-")}</strong>
+            ${gestion.observacion
+                ? `<small>${escaparHtml(gestion.observacion)}</small>`
+                : ""}
+        </li>
+    `).join("");
+    const datos = {
+        telefono_original: principal.telefono_original,
+        telefono_normalizado: principal.telefono_normalizado,
+        nombre: principal.nombre,
+        cantidad_contactos: Number(principal.cantidad_contactos || gestiones.length),
+        cliente: principal.cliente_id
+            ? {
+                id: principal.cliente_id,
+                dni: principal.cliente_dni,
+                nombre: principal.nombre,
+                telefono_normalizado: principal.telefono_normalizado,
+                cantidad_cotizaciones: principal.cantidad_cotizaciones
+            }
+            : null
+    };
+
+    guardarDatosPrimerContacto(datos);
+
+    return `
+        <article class="primer-contacto-card">
+            <div class="primer-contacto-card-main">
+                <span class="primer-contacto-card-fecha">${formatearFecha(principal.fecha)}</span>
+                <h3>${enlaceWhatsappPrimerContacto(
+                    principal.telefono_original || principal.telefono_normalizado
+                )}</h3>
+                <p>${escaparHtml(principal.nombre || "Sin nombre informado")}</p>
+                <div class="primer-contacto-meta">
+                    <span>${Number(principal.cantidad_contactos || gestiones.length)} contactos totales</span>
+                    <span>Último registro: ${escaparHtml(principal.asesora || "-")}</span>
+                    ${principal.cliente_id ? "<span>Cliente CRM vinculado</span>" : ""}
+                </div>
+            </div>
+            <div class="primer-contacto-card-actions">
+                <button type="button" onclick="abrirNuevoPrimerContacto('${telefonoCodificado}')">
+                    Registrar nuevo contacto
+                </button>
+                <button type="button" class="secondary-btn"
+                    onclick="crearCotizacionDesdePrimerContacto('${telefonoCodificado}')">
+                    Crear cotización
+                </button>
+            </div>
+            <details class="primer-contacto-historial">
+                <summary>Historial visible</summary>
+                <ol>${historial}</ol>
+            </details>
+        </article>
+    `;
+}
+
+async function cargarPrimerosContactos() {
+    const listado = document.getElementById("primerContactoListado");
+    if (!listado) return;
+
+    const fecha = document.getElementById("primerContactoFecha")?.value || "";
+    const vista = document.getElementById("primerContactoVista")?.value || "todos";
+    const params = new URLSearchParams();
+
+    if (fecha) {
+        params.set("fecha_desde", fecha);
+        params.set("fecha_hasta", fecha);
+    }
+    if (esAdmin()) params.set("vista", vista);
+
+    listado.innerHTML = "<p>Cargando contactos...</p>";
+    try {
+        const res = await fetch(`/primer-contacto?${params.toString()}`, {
+            headers: authHeaders()
+        });
+        const datos = await res.json().catch(() => ([]));
+
+        if (await manejarError(res)) return;
+        if (!res.ok) {
+            listado.innerHTML = "<p>No se pudieron cargar los contactos.</p>";
+            return;
+        }
+
+        const grupos = agruparGestionesPrimerContacto(datos);
+        document.getElementById("primerContactoContador").textContent =
+            `${datos.length} gestiones en ${grupos.length} teléfonos`;
+        listado.innerHTML = grupos.length
+            ? grupos.map(renderGrupoPrimerContacto).join("")
+            : "<p>No hay contactos para mostrar.</p>";
+    } catch (error) {
+        listado.innerHTML = "<p>No se pudieron cargar los contactos.</p>";
+    }
+}
+
+function limpiarFiltrosPrimerContacto() {
+    const telefono = document.getElementById("primerContactoBuscarTelefono");
+    const fecha = document.getElementById("primerContactoFecha");
+    const vista = document.getElementById("primerContactoVista");
+    const resultado = document.getElementById("primerContactoBusquedaResultado");
+
+    if (telefono) telefono.value = "";
+    if (fecha) fecha.value = "";
+    if (vista) vista.value = "todos";
+    if (resultado) {
+        resultado.hidden = true;
+        resultado.innerHTML = "";
+    }
+    cargarPrimerosContactos();
+}
+
+function reiniciarAnalisisPrimerContactoIndividual() {
+    primerContactoAnalisisIndividual = null;
+    primerContactoClaveIndividual = null;
+    const analisis = document.getElementById("primerContactoAnalisisIndividual");
+    const boton = document.getElementById("primerContactoConfirmarIndividual");
+
+    if (analisis) {
+        analisis.hidden = true;
+        analisis.innerHTML = "";
+    }
+    if (boton) boton.textContent = "Analizar teléfono";
+}
+
+function abrirNuevoPrimerContacto(telefonoCodificado = "") {
+    const modal = document.getElementById("primerContactoModal");
+    const form = document.getElementById("primerContactoForm");
+
+    form?.reset();
+    reiniciarAnalisisPrimerContactoIndividual();
+    document.getElementById("primerContactoTelefono").value =
+        decodeURIComponent(telefonoCodificado || "");
+    modal.hidden = false;
+    document.body.classList.add("modal-open");
+    document.getElementById("primerContactoTelefono")?.focus();
+}
+
+function cerrarNuevoPrimerContacto() {
+    document.getElementById("primerContactoModal").hidden = true;
+    document.body.classList.remove("modal-open");
+    reiniciarAnalisisPrimerContactoIndividual();
+}
+
+async function procesarNuevoPrimerContacto(event) {
+    event.preventDefault();
+    const telefono = document.getElementById("primerContactoTelefono").value.trim();
+    const normalizado = normalizarTelefono(telefono);
+    const boton = document.getElementById("primerContactoConfirmarIndividual");
+    const panel = document.getElementById("primerContactoAnalisisIndividual");
+
+    if (
+        !primerContactoAnalisisIndividual
+        || primerContactoAnalisisIndividual.telefono_normalizado !== normalizado
+    ) {
+        boton.disabled = true;
+        try {
+            const res = await fetch(
+                `/primer-contacto/buscar?telefono=${encodeURIComponent(telefono)}`,
+                { headers: authHeaders() }
+            );
+            const datos = await res.json().catch(() => ({}));
+
+            if (await manejarError(res)) return;
+            if (!res.ok || datos.estado === "invalido") {
+                mostrarToast(datos.error || "Número de teléfono inválido", "error");
+                return;
+            }
+
+            primerContactoAnalisisIndividual = datos;
+            primerContactoClaveIndividual = claveOperacionPrimerContacto("individual");
+            guardarDatosPrimerContacto(datos);
+            panel.innerHTML = renderAnalisisPrimerContacto(datos, { acciones: false });
+            panel.hidden = false;
+            boton.textContent = datos.ya_contactado_por_mi
+                ? "Registrar nuevo contacto"
+                : datos.cantidad_contactos || datos.existe_en_crm
+                    ? "Agregarme como asesora"
+                    : "Registrar contacto";
+        } finally {
+            boton.disabled = false;
+        }
+        return;
+    }
+
+    boton.disabled = true;
+    try {
+        const res = await fetch("/primer-contacto", {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({
+                telefono,
+                nombre: document.getElementById("primerContactoNombre").value,
+                observacion: document.getElementById("primerContactoObservacion").value,
+                confirmar_repetido: primerContactoAnalisisIndividual.ya_contactado_por_mi,
+                clave_idempotencia: primerContactoClaveIndividual
+            })
+        });
+        const datos = await res.json().catch(() => ({}));
+
+        if (await manejarError(res)) return;
+        if (!res.ok) {
+            mostrarToast(datos.error || "No se pudo registrar el contacto", "error");
+            return;
+        }
+
+        mostrarToast(datos.idempotente
+            ? "El contacto ya había sido registrado"
+            : "Contacto registrado");
+        cerrarNuevoPrimerContacto();
+        await cargarPrimerosContactos();
+        const busqueda = document.getElementById("primerContactoBuscarTelefono");
+        if (busqueda?.value.trim()) await buscarPrimerContacto();
+    } catch (error) {
+        mostrarToast("No se pudo registrar el contacto", "error");
+    } finally {
+        boton.disabled = false;
+    }
+}
+
+function abrirCargaMultiplePrimerContacto() {
+    primerContactoPreviewMultiple = [];
+    primerContactoClaveMultiple = null;
+    document.getElementById("primerContactoNumerosMultiples").value = "";
+    document.getElementById("primerContactoPreviewMultiple").innerHTML = "";
+    document.getElementById("primerContactoPreviewMultiple").hidden = true;
+    document.getElementById("primerContactoConfirmarMultiple").hidden = true;
+    document.getElementById("primerContactoMultipleModal").hidden = false;
+    document.body.classList.add("modal-open");
+    document.getElementById("primerContactoNumerosMultiples")?.focus();
+}
+
+function cerrarCargaMultiplePrimerContacto() {
+    document.getElementById("primerContactoMultipleModal").hidden = true;
+    document.body.classList.remove("modal-open");
+    primerContactoPreviewMultiple = [];
+    primerContactoClaveMultiple = null;
+}
+
+function renderPreviewMultiplePrimerContacto(resultados) {
+    return resultados.map((resultado, indice) => {
+        const seleccionable = resultado.valido !== false
+            && resultado.estado !== "duplicado_tanda";
+        const checked = seleccionable && resultado.seleccion_recomendada;
+
+        return `
+            <article class="primer-contacto-preview-item">
+                <label>
+                    <input type="checkbox" data-primer-contacto-indice="${indice}"
+                        ${checked ? "checked" : ""} ${seleccionable ? "" : "disabled"}>
+                    <span>
+                        <strong>${escaparHtml(resultado.telefono_original || "-")}</strong>
+                        <span class="${claseEstadoPrimerContacto(resultado.estado)}">
+                            ${textoEstadoPrimerContacto(resultado.estado)}
+                        </span>
+                        ${resultado.ultimo_contacto_propio
+                            ? `<small>Tu último contacto: ${formatearFecha(resultado.ultimo_contacto_propio)}</small>`
+                            : resultado.ultimo_contacto
+                                ? `<small>Último contacto: ${formatearFecha(resultado.ultimo_contacto)}</small>`
+                                : ""}
+                        ${resultado.cliente
+                            ? `<small>Cliente: ${escaparHtml(resultado.cliente.nombre || "Sin nombre")}</small>`
+                            : ""}
+                    </span>
+                </label>
+            </article>
+        `;
+    }).join("");
+}
+
+async function analizarCargaMultiplePrimerContacto() {
+    const textarea = document.getElementById("primerContactoNumerosMultiples");
+    const lineas = textarea.value.split(/\r?\n/).map(linea => linea.trim()).filter(Boolean);
+    const preview = document.getElementById("primerContactoPreviewMultiple");
+    const boton = document.getElementById("primerContactoAnalizarMultiple");
+
+    if (lineas.length > 15) {
+        mostrarToast("Podés cargar un máximo de 15 números por vez.", "error");
+        return;
+    }
+    if (!lineas.length) {
+        mostrarToast("Ingresá al menos un número", "error");
+        return;
+    }
+
+    boton.disabled = true;
+    try {
+        const res = await fetch("/primer-contacto/analizar-multiple", {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({ numeros: lineas })
+        });
+        const datos = await res.json().catch(() => ({}));
+
+        if (await manejarError(res)) return;
+        if (!res.ok) {
+            mostrarToast(datos.error || "No se pudieron analizar los números", "error");
+            return;
+        }
+
+        primerContactoPreviewMultiple = datos.resultados || [];
+        primerContactoClaveMultiple = claveOperacionPrimerContacto("lote");
+        preview.innerHTML = renderPreviewMultiplePrimerContacto(
+            primerContactoPreviewMultiple
+        );
+        preview.hidden = false;
+        document.getElementById("primerContactoConfirmarMultiple").hidden = false;
+    } catch (error) {
+        mostrarToast("No se pudieron analizar los números", "error");
+    } finally {
+        boton.disabled = false;
+    }
+}
+
+async function confirmarCargaMultiplePrimerContacto() {
+    const boton = document.getElementById("primerContactoConfirmarMultiple");
+    const seleccionados = [...document.querySelectorAll(
+        "[data-primer-contacto-indice]:checked"
+    )].map(input => primerContactoPreviewMultiple[Number(input.dataset.primerContactoIndice)]);
+
+    if (!seleccionados.length) {
+        mostrarToast("Seleccioná al menos un número", "error");
+        return;
+    }
+
+    boton.disabled = true;
+    try {
+        const res = await fetch("/primer-contacto/confirmar-multiple", {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({
+                clave_operacion: primerContactoClaveMultiple,
+                items: seleccionados.map(resultado => ({
+                    telefono: resultado.telefono_original,
+                    confirmar_repetido: resultado.ya_contactado_por_mi
+                }))
+            })
+        });
+        const datos = await res.json().catch(() => ({}));
+
+        if (await manejarError(res)) return;
+        if (!res.ok) {
+            mostrarToast(datos.error || "No se pudieron registrar los contactos", "error");
+            return;
+        }
+
+        mostrarToast(`${datos.creadas} contactos registrados`);
+        cerrarCargaMultiplePrimerContacto();
+        await cargarPrimerosContactos();
+    } catch (error) {
+        mostrarToast("No se pudieron registrar los contactos", "error");
+    } finally {
+        boton.disabled = false;
+    }
+}
+
+function crearCotizacionDesdePrimerContacto(telefonoCodificado) {
+    const telefono = decodeURIComponent(telefonoCodificado || "");
+    const normalizado = normalizarTelefono(telefono);
+    const contacto = primerContactoDatosPorTelefono.get(normalizado);
+
+    limpiarFormularioCotizacion();
+    limpiarResultadosBusqueda();
+    setValorCampo("dni", telefono);
+    setValorCampo("terminoBusquedaCotizacion", telefono);
+    setValorCampo("celular", normalizado || telefono);
+    setValorCampo("nombre", contacto?.nombre || contacto?.cliente?.nombre || "");
+
+    if (contacto?.cliente?.id) {
+        setValorCampo("clienteIdCotizacion", contacto.cliente.id);
+        setValorCampo("dniCotizacion", contacto.cliente.dni || "");
+    }
+
+    mostrarSeccion("cotizador");
+    mostrarToast("Completá los datos necesarios para crear tu cotización");
+}
+
 // INIT
 // =======================
 
@@ -4190,6 +4759,21 @@ window.onload = function () {
     }
 
     const payload = obtenerPayload();
+
+    const vistaPrimerContacto = document.getElementById(
+        "primerContactoVistaGrupo"
+    );
+    if (vistaPrimerContacto) {
+        vistaPrimerContacto.hidden = !esAdmin();
+    }
+    const tituloPrimerContacto = document.getElementById(
+        "primerContactoListadoTitulo"
+    );
+    if (tituloPrimerContacto) {
+        tituloPrimerContacto.textContent = esAdmin()
+            ? "Contactos recientes"
+            : "Mis contactos recientes";
+    }
 
     // mostrar usuario logueado
     const user = document.getElementById("usuarioLogueado");
@@ -4227,7 +4811,11 @@ window.onload = function () {
 
     document.addEventListener("keydown", event => {
         if (event.key === "Escape") {
-            if (!document.getElementById("inicioTareaModal")?.hidden) {
+            if (!document.getElementById("primerContactoModal")?.hidden) {
+                cerrarNuevoPrimerContacto();
+            } else if (!document.getElementById("primerContactoMultipleModal")?.hidden) {
+                cerrarCargaMultiplePrimerContacto();
+            } else if (!document.getElementById("inicioTareaModal")?.hidden) {
                 cerrarFormularioTarea();
             } else if (!document.getElementById("todasTareasModal")?.hidden) {
                 cerrarModalTodasTareas();
@@ -4271,6 +4859,10 @@ function mostrarSeccion(seccion) {
 
     if (seccion === "inicio") {
         cargarInicioCrm();
+    }
+
+    if (seccion === "primerContacto") {
+        cargarPrimerosContactos();
     }
 
     // si es usuarios, cargar lista

@@ -66,6 +66,10 @@
                 <button onclick="abrirCotizadorManual()">
                     <img class="icono-menu" src="img/imgicon-cotizador.png" alt="">
                     <span>Cotizador</span></button>
+                <button onclick="mostrarSeccion('primerContacto')">
+                    <img class="icono-menu" src="img/icono-whatsapp.svg" alt="">
+                    <span>Primer contacto</span>
+                </button>
                 <button onclick="mostrarSeccion('misCotizaciones')">
                     <img class="icono-menu" src="img/imgicon-busqueda.png" alt="">
                     <span>Cotizaciones</span>
@@ -350,6 +354,66 @@
 
                         <div id="todasTareasResultados" class="todas-tareas-resultados" aria-live="polite"></div>
                     </section>
+                </div>
+            </section>
+
+            <section id="primerContacto" class="seccion" style="display:none;">
+                <div class="container primer-contacto-page">
+                    <header class="primer-contacto-header">
+                        <div>
+                            <span class="primer-contacto-eyebrow">Gesti&oacute;n comercial</span>
+                            <h2>Primer contacto</h2>
+                            <p>Registr&aacute; cada intento sin crear todav&iacute;a una cotizaci&oacute;n.</p>
+                        </div>
+                        <div class="primer-contacto-actions">
+                            <button type="button" onclick="abrirNuevoPrimerContacto()">
+                                + Nuevo contacto
+                            </button>
+                            <button type="button" class="secondary-btn" onclick="abrirCargaMultiplePrimerContacto()">
+                                Carga m&uacute;ltiple
+                            </button>
+                        </div>
+                    </header>
+
+                    <div class="primer-contacto-toolbar">
+                        <label class="primer-contacto-search">
+                            <span>Buscar tel&eacute;fono</span>
+                            <div>
+                                <input type="search" id="primerContactoBuscarTelefono"
+                                    placeholder="11 1234-5678"
+                                    onkeydown="if (event.key === 'Enter') buscarPrimerContacto()">
+                                <button type="button" onclick="buscarPrimerContacto()">Buscar</button>
+                            </div>
+                        </label>
+
+                        <label>
+                            <span>Fecha</span>
+                            <input type="date" id="primerContactoFecha" onchange="cargarPrimerosContactos()">
+                        </label>
+
+                        <label id="primerContactoVistaGrupo" hidden>
+                            <span>Vista</span>
+                            <select id="primerContactoVista" onchange="cargarPrimerosContactos()">
+                                <option value="todos">Todos los contactos</option>
+                                <option value="mis">Mis contactos</option>
+                            </select>
+                        </label>
+
+                        <button type="button" class="secondary-btn" onclick="limpiarFiltrosPrimerContacto()">
+                            Limpiar
+                        </button>
+                    </div>
+
+                    <div id="primerContactoBusquedaResultado" class="primer-contacto-busqueda" hidden></div>
+
+                    <div class="primer-contacto-listado-header">
+                        <div>
+                            <h3 id="primerContactoListadoTitulo">Mis contactos recientes</h3>
+                            <p id="primerContactoContador"></p>
+                        </div>
+                    </div>
+
+                    <div id="primerContactoListado" class="primer-contacto-listado" aria-live="polite"></div>
                 </div>
             </section>
 
@@ -855,6 +919,88 @@
 
         </main>
 
+    </div>
+
+    <!-- MODAL NUEVO PRIMER CONTACTO -->
+    <div id="primerContactoModal" class="primer-contacto-modal-overlay" hidden
+        onclick="if (event.target === this) cerrarNuevoPrimerContacto()">
+        <section class="primer-contacto-modal" role="dialog" aria-modal="true"
+            aria-labelledby="primerContactoModalTitulo">
+            <header>
+                <div>
+                    <span>Primer contacto</span>
+                    <h2 id="primerContactoModalTitulo">Nuevo contacto</h2>
+                </div>
+                <button type="button" aria-label="Cerrar" onclick="cerrarNuevoPrimerContacto()">&times;</button>
+            </header>
+
+            <form id="primerContactoForm" onsubmit="procesarNuevoPrimerContacto(event)">
+                <label>
+                    Tel&eacute;fono <strong aria-hidden="true">*</strong>
+                    <input type="tel" id="primerContactoTelefono" required maxlength="50"
+                        oninput="reiniciarAnalisisPrimerContactoIndividual()">
+                </label>
+                <label>
+                    Nombre <small>(opcional)</small>
+                    <input type="text" id="primerContactoNombre" maxlength="120">
+                </label>
+                <label>
+                    Comentario inicial <small>(opcional)</small>
+                    <textarea id="primerContactoObservacion" rows="4" maxlength="1000"></textarea>
+                </label>
+
+                <div id="primerContactoAnalisisIndividual" class="primer-contacto-analisis" hidden></div>
+
+                <div class="primer-contacto-modal-actions">
+                    <button type="button" class="secondary-btn" onclick="cerrarNuevoPrimerContacto()">
+                        Cancelar
+                    </button>
+                    <button type="submit" id="primerContactoConfirmarIndividual">
+                        Analizar tel&eacute;fono
+                    </button>
+                </div>
+            </form>
+        </section>
+    </div>
+
+    <!-- MODAL CARGA MULTIPLE PRIMER CONTACTO -->
+    <div id="primerContactoMultipleModal" class="primer-contacto-modal-overlay" hidden
+        onclick="if (event.target === this) cerrarCargaMultiplePrimerContacto()">
+        <section class="primer-contacto-modal primer-contacto-modal-multiple" role="dialog" aria-modal="true"
+            aria-labelledby="primerContactoMultipleTitulo">
+            <header>
+                <div>
+                    <span>Primer contacto</span>
+                    <h2 id="primerContactoMultipleTitulo">Carga m&uacute;ltiple</h2>
+                </div>
+                <button type="button" aria-label="Cerrar" onclick="cerrarCargaMultiplePrimerContacto()">&times;</button>
+            </header>
+
+            <div class="primer-contacto-multiple-body">
+                <label>
+                    Peg&aacute; hasta 15 n&uacute;meros, uno por l&iacute;nea
+                    <textarea id="primerContactoNumerosMultiples" rows="8"
+                        placeholder="11 1234-5678&#10;11 2345-6789"></textarea>
+                </label>
+
+                <button type="button" id="primerContactoAnalizarMultiple"
+                    onclick="analizarCargaMultiplePrimerContacto()">
+                    Analizar n&uacute;meros
+                </button>
+
+                <div id="primerContactoPreviewMultiple" class="primer-contacto-preview" hidden></div>
+            </div>
+
+            <footer class="primer-contacto-modal-actions">
+                <button type="button" class="secondary-btn" onclick="cerrarCargaMultiplePrimerContacto()">
+                    Cancelar
+                </button>
+                <button type="button" id="primerContactoConfirmarMultiple" hidden
+                    onclick="confirmarCargaMultiplePrimerContacto()">
+                    Confirmar seleccionados
+                </button>
+            </footer>
+        </section>
     </div>
 
     <!-- MODAL DETALLE DE COTIZACION -->

@@ -266,6 +266,10 @@ function normalizarTelefono(valor) {
 
     if (!numero) return "";
 
+    if (numero.startsWith("00")) {
+        numero = numero.slice(2);
+    }
+
     if (numero.startsWith("549")) {
         numero = numero.slice(3);
     } else if (numero.startsWith("54")) {
@@ -276,15 +280,29 @@ function normalizarTelefono(valor) {
         numero = numero.slice(1);
     }
 
-    // En celulares argentinos, el 15 puede quedar entre codigo de area y numero.
-    for (let posicion = 2; posicion <= 4; posicion++) {
-        if (numero.slice(posicion, posicion + 2) === "15") {
-            numero = numero.slice(0, posicion) + numero.slice(posicion + 2);
-            break;
+    const candidatas = new Set();
+
+    if (/^\d{10}$/.test(numero)) {
+        candidatas.add(numero);
+    }
+
+    // El 15 historico solo se elimina cuando sobran exactamente esos dos
+    // digitos y el resultado es un numero nacional argentino de 10 digitos.
+    if (numero.length === 12) {
+        for (let posicion = 2; posicion <= 4; posicion++) {
+            if (numero.slice(posicion, posicion + 2) !== "15") continue;
+
+            const sinPrefijoLocal =
+                numero.slice(0, posicion) + numero.slice(posicion + 2);
+
+            if (/^\d{10}$/.test(sinPrefijoLocal)) {
+                candidatas.add(sinPrefijoLocal);
+            }
         }
     }
 
-    return numero;
+    const opciones = [...candidatas];
+    return opciones.length === 1 ? opciones[0] : numero;
 }
 
 function normalizarDni(valor) {
@@ -1024,6 +1042,42 @@ db.serialize(() => {
     db.run(`
     CREATE INDEX IF NOT EXISTS idx_cotizaciones_etapa_vendedora
     ON cotizaciones (etapa_pipeline, vendedora)
+`, () => { });
+    db.run(`
+    CREATE TABLE IF NOT EXISTS primer_contacto_identidades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        telefono_original TEXT NOT NULL,
+        telefono_normalizado TEXT NOT NULL UNIQUE,
+        cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+        nombre TEXT,
+        fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+        fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, () => { });
+    db.run(`
+    CREATE TABLE IF NOT EXISTS primer_contacto_gestiones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contacto_id INTEGER NOT NULL
+            REFERENCES primer_contacto_identidades(id) ON DELETE CASCADE,
+        usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+        asesora TEXT NOT NULL,
+        observacion TEXT,
+        clave_idempotencia TEXT NOT NULL,
+        fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (asesora, clave_idempotencia)
+    )
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_primer_contacto_cliente
+    ON primer_contacto_identidades (cliente_id)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_primer_contacto_gestiones_contacto_fecha
+    ON primer_contacto_gestiones (contacto_id, fecha DESC)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_primer_contacto_gestiones_asesora_fecha
+    ON primer_contacto_gestiones (asesora, fecha DESC)
 `, () => { });
     db.run(`
     CREATE TABLE IF NOT EXISTS tareas_crm (
@@ -1778,6 +1832,538 @@ function errorHttp(status, message) {
     return error;
 }
 
+const MAX_PRIMER_CONTACTO_TANDA = 15;
+
+function textoOpcionalPrimerContacto(valor, maximo) {
+    const texto = String(valor || "").trim();
+
+    if (!texto) return null;
+    if (texto.length > maximo) {
+        throw errorHttp(400, `El texto supera el máximo de ${maximo} caracteres`);
+    }
+
+    return texto;
+}
+
+function telefonoPrimerContacto(telefono) {
+    const original = String(telefono || "").trim();
+    const normalizado = normalizarTelefono(original);
+    const valido = original.length <= 50 && /^\d{10}$/.test(normalizado);
+
+    return {
+        telefono_original: original,
+        telefono_normalizado: normalizado,
+        valido
+    };
+}
+
+function validarClavePrimerContacto(clave, campo = "clave_idempotencia") {
+    const valor = String(clave || "").trim();
+
+    if (!/^[a-zA-Z0-9:_-]{8,120}$/.test(valor)) {
+        throw errorHttp(400, `${campo} inválida`);
+    }
+
+    return valor;
+}
+
+function storePrimerContacto(tx = null) {
+    return tx || {
+        get: dbGetAsync,
+        all: dbAllAsync,
+        run: dbRunAsync
+    };
+}
+
+async function cargarContextoTelefonosCrm(tx = null) {
+    const store = storePrimerContacto(tx);
+    const [clientes, cotizaciones] = await Promise.all([
+        store.all(
+            `
+            SELECT
+                id, identidad_tipo, identidad_valor, dni, nombre, celular,
+                telefono_normalizado
+            FROM clientes
+            ORDER BY id ASC
+            `
+        ),
+        store.all(
+            `
+            SELECT
+                id, cliente_id, dni, nombre, celular, plan, vendedora, fecha,
+                estado, etapa_pipeline
+            FROM cotizaciones
+            ORDER BY fecha DESC, id DESC
+            `
+        )
+    ]);
+
+    return { clientes, cotizaciones };
+}
+
+function telefonoCoincideConCanonico(telefonoNormalizado, ...valores) {
+    return valores.some(valor =>
+        valor && normalizarTelefono(valor) === telefonoNormalizado
+    );
+}
+
+function buscarContextoCrmPrimerContacto(telefonoNormalizado, contextoCrm) {
+    const clientes = contextoCrm.clientes || [];
+    const cotizaciones = contextoCrm.cotizaciones || [];
+    const clienteDirecto = clientes.find(cliente =>
+        telefonoCoincideConCanonico(
+            telefonoNormalizado,
+            cliente.celular,
+            cliente.telefono_normalizado,
+            cliente.identidad_tipo === "telefono" ? cliente.identidad_valor : null
+        )
+    ) || null;
+    const cotizacionesCoincidentes = cotizaciones.filter(cotizacion =>
+        telefonoCoincideConCanonico(telefonoNormalizado, cotizacion.celular)
+    );
+    const clienteVinculado = clienteDirecto || clientes.find(cliente =>
+        cotizacionesCoincidentes.some(cotizacion =>
+            String(cotizacion.cliente_id || "") === String(cliente.id)
+        )
+    ) || null;
+    const cotizacionesCliente = clienteVinculado
+        ? cotizaciones.filter(cotizacion =>
+            String(cotizacion.cliente_id || "") === String(clienteVinculado.id)
+        )
+        : [];
+    const cotizacionesRelacionadas = [...new Map(
+        [...cotizacionesCoincidentes, ...cotizacionesCliente]
+            .map(cotizacion => [String(cotizacion.id), cotizacion])
+    ).values()];
+
+    return {
+        cliente: clienteVinculado,
+        cotizaciones: cotizacionesRelacionadas,
+        cotizacionTelefono: cotizacionesCoincidentes[0] || null
+    };
+}
+
+async function buscarIdentidadPrimerContacto(telefonoNormalizado, tx = null) {
+    const store = storePrimerContacto(tx);
+    const exacta = await store.get(
+        `
+        SELECT *
+        FROM primer_contacto_identidades
+        WHERE telefono_normalizado = ?
+        LIMIT 1
+        `,
+        [telefonoNormalizado]
+    );
+
+    if (exacta) return exacta;
+
+    const historicas = await store.all(
+        `SELECT * FROM primer_contacto_identidades ORDER BY id ASC`
+    );
+
+    return historicas.find(identidad =>
+        telefonoCoincideConCanonico(
+            telefonoNormalizado,
+            identidad.telefono_original,
+            identidad.telefono_normalizado
+        )
+    ) || null;
+}
+
+async function analizarTelefonoPrimerContacto(
+    telefono,
+    asesora,
+    tx = null,
+    contextoCrm = null
+) {
+    const datosTelefono = telefonoPrimerContacto(telefono);
+
+    if (!datosTelefono.valido) {
+        return {
+            ...datosTelefono,
+            estado: "invalido",
+            cantidad_contactos: 0,
+            ya_contactado_por_mi: false,
+            seleccion_recomendada: false,
+            asesoras: [],
+            historial: [],
+            cliente: null,
+            existe_en_crm: false,
+            ultima_cotizacion_crm: null
+        };
+    }
+
+    const store = storePrimerContacto(tx);
+    const [identidad, contexto] = await Promise.all([
+        buscarIdentidadPrimerContacto(datosTelefono.telefono_normalizado, tx),
+        contextoCrm || cargarContextoTelefonosCrm(tx)
+    ]);
+    const coincidenciaCrm = buscarContextoCrmPrimerContacto(
+        datosTelefono.telefono_normalizado,
+        contexto
+    );
+    const cliente = coincidenciaCrm.cliente;
+    const cotizacionReferencia = coincidenciaCrm.cotizacionTelefono
+        || coincidenciaCrm.cotizaciones[0]
+        || null;
+    const historial = identidad
+        ? await store.all(
+            `
+            SELECT id, contacto_id, usuario_id, asesora, observacion, fecha
+            FROM primer_contacto_gestiones
+            WHERE contacto_id = ?
+            ORDER BY fecha DESC, id DESC
+            `,
+            [identidad.id]
+        )
+        : [];
+    const propios = historial.filter(gestion => gestion.asesora === asesora);
+    const asesoras = [...new Set(historial.map(gestion => gestion.asesora))];
+    const estado = propios.length
+        ? "contactado_por_mi"
+        : historial.length
+            ? "contactado_por_otra"
+            : cliente || coincidenciaCrm.cotizaciones.length
+                ? "existe_en_crm"
+                : "nuevo";
+
+    return {
+        ...datosTelefono,
+        contacto_id: identidad?.id || null,
+        nombre: cliente?.nombre || cotizacionReferencia?.nombre || identidad?.nombre || null,
+        estado,
+        cantidad_contactos: historial.length,
+        ya_contactado_por_mi: propios.length > 0,
+        ultimo_contacto: historial[0]?.fecha || null,
+        ultimo_contacto_propio: propios[0]?.fecha || null,
+        seleccion_recomendada: estado !== "contactado_por_mi",
+        asesoras,
+        historial,
+        existe_en_crm: Boolean(cliente || coincidenciaCrm.cotizaciones.length),
+        cantidad_cotizaciones_crm: coincidenciaCrm.cotizaciones.length,
+        ultima_cotizacion_crm: cotizacionReferencia?.fecha
+            ? { fecha: cotizacionReferencia.fecha }
+            : null,
+        cliente: cliente
+            ? {
+                id: cliente.id,
+                dni: cliente.dni,
+                nombre: cliente.nombre,
+                celular: cliente.celular,
+                telefono_normalizado: cliente.telefono_normalizado,
+                cantidad_cotizaciones: coincidenciaCrm.cotizaciones.length
+            }
+            : null
+    };
+}
+
+function numerosPrimerContactoDesdeBody(numeros) {
+    const lineas = (Array.isArray(numeros)
+        ? numeros
+        : String(numeros || "").split(/\r?\n/))
+        .map(numero => String(numero || "").trim())
+        .filter(Boolean);
+
+    if (lineas.length > MAX_PRIMER_CONTACTO_TANDA) {
+        throw errorHttp(
+            400,
+            `Podés cargar un máximo de ${MAX_PRIMER_CONTACTO_TANDA} números por vez.`
+        );
+    }
+
+    return lineas;
+}
+
+async function analizarTandaPrimerContacto(numeros, asesora, tx = null) {
+    const lineas = numerosPrimerContactoDesdeBody(numeros);
+    const contextoCrm = await cargarContextoTelefonosCrm(tx);
+    const vistos = new Map();
+    const resultados = [];
+
+    for (let indice = 0; indice < lineas.length; indice++) {
+        const resultado = await analizarTelefonoPrimerContacto(
+            lineas[indice],
+            asesora,
+            tx,
+            contextoCrm
+        );
+        const repetido = resultado.valido
+            ? vistos.get(resultado.telefono_normalizado)
+            : undefined;
+
+        if (repetido !== undefined) {
+            resultados.push({
+                ...resultado,
+                estado: "duplicado_tanda",
+                duplicado_de: repetido,
+                seleccion_recomendada: false
+            });
+            continue;
+        }
+
+        if (resultado.valido) {
+            vistos.set(resultado.telefono_normalizado, indice);
+        }
+
+        resultados.push(resultado);
+    }
+
+    return resultados;
+}
+
+async function obtenerOCrearIdentidadPrimerContacto(
+    tx,
+    datos,
+    cliente,
+    nombre,
+    contactoId = null
+) {
+    const clienteId = cliente?.id || null;
+
+    if (contactoId) {
+        await tx.run(
+            `
+            UPDATE primer_contacto_identidades
+            SET
+                cliente_id = COALESCE(cliente_id, ?),
+                nombre = COALESCE(nombre, ?),
+                fecha_actualizacion = CURRENT_TIMESTAMP
+            WHERE id = ?
+            `,
+            [clienteId, nombre, contactoId]
+        );
+
+        return tx.get(
+            `SELECT * FROM primer_contacto_identidades WHERE id = ?`,
+            [contactoId]
+        );
+    }
+
+    if (db.type === "postgres") {
+        return tx.get(
+            `
+            INSERT INTO primer_contacto_identidades (
+                telefono_original,
+                telefono_normalizado,
+                cliente_id,
+                nombre
+            )
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (telefono_normalizado) DO UPDATE
+            SET
+                cliente_id = COALESCE(
+                    primer_contacto_identidades.cliente_id,
+                    EXCLUDED.cliente_id
+                ),
+                nombre = COALESCE(
+                    primer_contacto_identidades.nombre,
+                    EXCLUDED.nombre
+                ),
+                fecha_actualizacion = CURRENT_TIMESTAMP
+            RETURNING *
+            `,
+            [
+                datos.telefono_original,
+                datos.telefono_normalizado,
+                clienteId,
+                nombre
+            ]
+        );
+    }
+
+    await tx.run(
+        `
+        INSERT OR IGNORE INTO primer_contacto_identidades (
+            telefono_original,
+            telefono_normalizado,
+            cliente_id,
+            nombre
+        )
+        VALUES (?, ?, ?, ?)
+        `,
+        [
+            datos.telefono_original,
+            datos.telefono_normalizado,
+            clienteId,
+            nombre
+        ]
+    );
+    await tx.run(
+        `
+        UPDATE primer_contacto_identidades
+        SET
+            cliente_id = COALESCE(cliente_id, ?),
+            nombre = COALESCE(nombre, ?),
+            fecha_actualizacion = CURRENT_TIMESTAMP
+        WHERE telefono_normalizado = ?
+        `,
+        [clienteId, nombre, datos.telefono_normalizado]
+    );
+
+    return tx.get(
+        `
+        SELECT *
+        FROM primer_contacto_identidades
+        WHERE telefono_normalizado = ?
+        `,
+        [datos.telefono_normalizado]
+    );
+}
+
+async function registrarGestionPrimerContacto(
+    tx,
+    req,
+    {
+        telefono,
+        nombre,
+        observacion,
+        confirmar_repetido = false,
+        clave_idempotencia
+    },
+    contextoCrm = null
+) {
+    const datosTelefono = telefonoPrimerContacto(telefono);
+
+    if (!datosTelefono.valido) {
+        throw errorHttp(400, "Número de teléfono inválido");
+    }
+
+    const clave = validarClavePrimerContacto(clave_idempotencia);
+    const nombreLimpio = textoOpcionalPrimerContacto(nombre, 120);
+    const observacionLimpia = textoOpcionalPrimerContacto(observacion, 1000);
+    const existentePorClave = await tx.get(
+        `
+        SELECT
+            primer_contacto_gestiones.id,
+            primer_contacto_identidades.telefono_normalizado
+        FROM primer_contacto_gestiones
+        JOIN primer_contacto_identidades
+            ON primer_contacto_identidades.id = primer_contacto_gestiones.contacto_id
+        WHERE primer_contacto_gestiones.asesora = ?
+          AND primer_contacto_gestiones.clave_idempotencia = ?
+        LIMIT 1
+        `,
+        [req.user.usuario, clave]
+    );
+
+    if (existentePorClave) {
+        if (
+            existentePorClave.telefono_normalizado
+            !== datosTelefono.telefono_normalizado
+        ) {
+            throw errorHttp(409, "La confirmación ya fue usada para otro número");
+        }
+
+        return {
+            creada: false,
+            idempotente: true,
+            gestion_id: existentePorClave.id,
+            analisis: await analizarTelefonoPrimerContacto(
+                telefono,
+                req.user.usuario,
+                tx,
+                contextoCrm
+            )
+        };
+    }
+
+    const analisis = await analizarTelefonoPrimerContacto(
+        telefono,
+        req.user.usuario,
+        tx,
+        contextoCrm
+    );
+
+    if (analisis.ya_contactado_por_mi && !confirmar_repetido) {
+        throw errorHttp(
+            409,
+            "Ya registraste un contacto con este número. Confirmá el nuevo intento."
+        );
+    }
+
+    const identidad = await obtenerOCrearIdentidadPrimerContacto(
+        tx,
+        datosTelefono,
+        analisis.cliente,
+        nombreLimpio,
+        analisis.contacto_id
+    );
+    const usuario = await obtenerUsuarioPorNombre(req.user.usuario, tx);
+    let gestionId = null;
+    let creada = false;
+
+    if (db.type === "postgres") {
+        const insertada = await tx.get(
+            `
+            INSERT INTO primer_contacto_gestiones (
+                contacto_id,
+                usuario_id,
+                asesora,
+                observacion,
+                clave_idempotencia
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (asesora, clave_idempotencia) DO NOTHING
+            RETURNING id
+            `,
+            [
+                identidad.id,
+                usuario?.id || null,
+                req.user.usuario,
+                observacionLimpia,
+                clave
+            ]
+        );
+        gestionId = insertada?.id || null;
+        creada = Boolean(insertada);
+    } else {
+        const insertada = await tx.run(
+            `
+            INSERT OR IGNORE INTO primer_contacto_gestiones (
+                contacto_id,
+                usuario_id,
+                asesora,
+                observacion,
+                clave_idempotencia
+            )
+            VALUES (?, ?, ?, ?, ?)
+            `,
+            [
+                identidad.id,
+                usuario?.id || null,
+                req.user.usuario,
+                observacionLimpia,
+                clave
+            ]
+        );
+        gestionId = insertada.lastID || null;
+        creada = insertada.changes > 0;
+    }
+
+    if (!gestionId) {
+        const existente = await tx.get(
+            `
+            SELECT id
+            FROM primer_contacto_gestiones
+            WHERE asesora = ? AND clave_idempotencia = ?
+            `,
+            [req.user.usuario, clave]
+        );
+        gestionId = existente?.id || null;
+    }
+
+    return {
+        creada,
+        idempotente: !creada,
+        gestion_id: gestionId,
+        analisis: await analizarTelefonoPrimerContacto(
+            telefono,
+            req.user.usuario,
+            tx
+        )
+    };
+}
+
 async function obtenerClienteParaCotizacion(tx, datosCliente, clienteId, terminoBusqueda = "") {
     if (clienteId) {
         if (!/^\d+$/.test(String(clienteId))) {
@@ -1945,6 +2531,215 @@ app.post("/agregar", verificarToken, uploadImagenesNuevaCotizacion, async (req, 
 
 app.post("/clientes/:id/cotizaciones", verificarToken, uploadImagenesNuevaCotizacion, async (req, res) => {
     responderCreacionCotizacion(req, res, req.params.id);
+});
+
+app.get("/primer-contacto", verificarToken, async (req, res) => {
+    const condiciones = [];
+    const parametros = [];
+    const telefono = String(req.query.telefono || "").trim();
+    const vista = String(req.query.vista || "").trim();
+    const fechaDesde = String(req.query.fecha_desde || "").trim();
+    const fechaHasta = String(req.query.fecha_hasta || "").trim();
+
+    if (req.user.rol !== "admin" || vista === "mis") {
+        condiciones.push("gestiones.asesora = ?");
+        parametros.push(req.user.usuario);
+    }
+
+    if (telefono) {
+        const normalizado = normalizarTelefono(telefono);
+
+        if (!normalizado) {
+            return res.status(400).json({ error: "Teléfono inválido" });
+        }
+
+        condiciones.push("identidades.telefono_normalizado = ?");
+        parametros.push(normalizado);
+    }
+
+    if (fechaDesde) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaDesde)) {
+            return res.status(400).json({ error: "Fecha desde inválida" });
+        }
+
+        condiciones.push("gestiones.fecha >= ?");
+        parametros.push(`${fechaDesde} 00:00:00`);
+    }
+
+    if (fechaHasta) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaHasta)) {
+            return res.status(400).json({ error: "Fecha hasta inválida" });
+        }
+
+        condiciones.push("gestiones.fecha <= ?");
+        parametros.push(`${fechaHasta} 23:59:59.999`);
+    }
+
+    try {
+        const gestiones = await dbAllAsync(
+            `
+            SELECT
+                gestiones.id,
+                gestiones.contacto_id,
+                gestiones.usuario_id,
+                gestiones.asesora,
+                gestiones.observacion,
+                gestiones.fecha,
+                identidades.telefono_original,
+                identidades.telefono_normalizado,
+                identidades.cliente_id,
+                COALESCE(clientes.nombre, identidades.nombre) AS nombre,
+                clientes.dni AS cliente_dni,
+                (
+                    SELECT COUNT(*)
+                    FROM primer_contacto_gestiones historial
+                    WHERE historial.contacto_id = identidades.id
+                ) AS cantidad_contactos,
+                (
+                    SELECT COUNT(*)
+                    FROM cotizaciones
+                    WHERE cotizaciones.cliente_id = identidades.cliente_id
+                ) AS cantidad_cotizaciones
+            FROM primer_contacto_gestiones gestiones
+            JOIN primer_contacto_identidades identidades
+                ON identidades.id = gestiones.contacto_id
+            LEFT JOIN clientes
+                ON clientes.id = identidades.cliente_id
+            ${condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : ""}
+            ORDER BY gestiones.fecha DESC, gestiones.id DESC
+            LIMIT 200
+            `,
+            parametros
+        );
+
+        res.json(gestiones.map(gestion => ({
+            ...gestion,
+            cantidad_contactos: Number(gestion.cantidad_contactos || 0),
+            cantidad_cotizaciones: Number(gestion.cantidad_cotizaciones || 0)
+        })));
+    } catch (error) {
+        res.status(500).json({ error: "No se pudieron cargar los primeros contactos" });
+    }
+});
+
+app.get("/primer-contacto/buscar", verificarToken, async (req, res) => {
+    try {
+        const resultado = await analizarTelefonoPrimerContacto(
+            req.query.telefono,
+            req.user.usuario
+        );
+
+        res.json(resultado);
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo buscar el teléfono"
+        });
+    }
+});
+
+app.post("/primer-contacto/analizar-multiple", verificarToken, async (req, res) => {
+    try {
+        const resultados = await analizarTandaPrimerContacto(
+            req.body.numeros,
+            req.user.usuario
+        );
+
+        res.json({
+            limite: MAX_PRIMER_CONTACTO_TANDA,
+            cantidad: resultados.length,
+            resultados
+        });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudieron analizar los números"
+        });
+    }
+});
+
+app.post("/primer-contacto", verificarToken, async (req, res) => {
+    try {
+        const resultado = await db.transaction(tx =>
+            registrarGestionPrimerContacto(tx, req, req.body)
+        );
+
+        res.status(resultado.creada ? 201 : 200).json({
+            success: true,
+            ...resultado
+        });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo registrar el contacto"
+        });
+    }
+});
+
+app.post("/primer-contacto/confirmar-multiple", verificarToken, async (req, res) => {
+    try {
+        const items = Array.isArray(req.body.items) ? req.body.items : [];
+        const operacion = validarClavePrimerContacto(
+            req.body.clave_operacion,
+            "clave_operacion"
+        );
+
+        if (!items.length) {
+            throw errorHttp(400, "Seleccioná al menos un número");
+        }
+        if (items.length > MAX_PRIMER_CONTACTO_TANDA) {
+            throw errorHttp(
+                400,
+                `Podés cargar un máximo de ${MAX_PRIMER_CONTACTO_TANDA} números por vez.`
+            );
+        }
+
+        const normalizados = new Set();
+        const preparados = items.map(item => {
+            const telefono = telefonoPrimerContacto(item.telefono);
+
+            if (!telefono.valido) {
+                throw errorHttp(400, "La selección contiene un número inválido");
+            }
+            if (normalizados.has(telefono.telefono_normalizado)) {
+                throw errorHttp(400, "La selección contiene números repetidos");
+            }
+
+            normalizados.add(telefono.telefono_normalizado);
+
+            return {
+                telefono: item.telefono,
+                nombre: item.nombre,
+                observacion: item.observacion,
+                confirmar_repetido: Boolean(item.confirmar_repetido),
+                clave_idempotencia:
+                    `lote:${operacion}:${telefono.telefono_normalizado}`
+            };
+        });
+        const resultados = await db.transaction(async tx => {
+            const guardados = [];
+            const contextoCrm = await cargarContextoTelefonosCrm(tx);
+
+            for (const item of preparados) {
+                guardados.push(await registrarGestionPrimerContacto(
+                    tx,
+                    req,
+                    item,
+                    contextoCrm
+                ));
+            }
+
+            return guardados;
+        });
+
+        res.json({
+            success: true,
+            creadas: resultados.filter(resultado => resultado.creada).length,
+            idempotentes: resultados.filter(resultado => resultado.idempotente).length,
+            resultados
+        });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudieron registrar los contactos"
+        });
+    }
 });
 
 app.post(

@@ -25,6 +25,441 @@ $pipeline-neutral: #dfeaf3;
     --tarea-vencida: #{$error};
 }
 
+// =======================
+// PRIMER CONTACTO
+// =======================
+
+.primer-contacto-page {
+    display: grid;
+    gap: 22px;
+}
+
+.primer-contacto-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 24px;
+    border: 1px solid rgba(79, 70, 229, 0.14);
+    border-radius: 20px;
+    background: linear-gradient(135deg, #fff 0%, #f4f7ff 100%);
+
+    h2 {
+        margin: 4px 0 6px;
+    }
+
+    p {
+        margin: 0;
+        color: #64748b;
+    }
+}
+
+.primer-contacto-eyebrow {
+    color: #4f46e5;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.primer-contacto-actions,
+.primer-contacto-card-actions,
+.primer-contacto-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.primer-contacto-toolbar {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) minmax(150px, 190px) minmax(170px, 210px) auto;
+    align-items: end;
+    gap: 12px;
+    padding: 18px;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    background: #fff;
+
+    label {
+        display: grid;
+        gap: 7px;
+
+        > span {
+            color: #475569;
+            font-size: 13px;
+            font-weight: 700;
+        }
+    }
+}
+
+.primer-contacto-search > div {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+}
+
+.primer-contacto-busqueda {
+    padding: 18px;
+    border: 1px solid #c7d2fe;
+    border-radius: 18px;
+    background: #f8faff;
+}
+
+.primer-contacto-listado-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    h3,
+    p {
+        margin: 0;
+    }
+
+    p {
+        margin-top: 4px;
+        color: #64748b;
+    }
+}
+
+.primer-contacto-listado {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.primer-contacto-card,
+.primer-contacto-resumen {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
+    padding: 18px;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+
+    h3,
+    p {
+        margin: 0;
+    }
+}
+
+.primer-contacto-card-main {
+    display: grid;
+    gap: 7px;
+}
+
+.primer-contacto-card-fecha {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.primer-contacto-meta {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+
+    span {
+        padding: 5px 9px;
+        border-radius: 999px;
+        color: #475569;
+        background: #f1f5f9;
+        font-size: 12px;
+        font-weight: 700;
+    }
+}
+
+.primer-contacto-whatsapp {
+    color: #0f766e;
+    text-decoration: none;
+
+    &:hover {
+        text-decoration: underline;
+    }
+}
+
+.primer-contacto-resumen-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+
+    > div {
+        display: grid;
+        gap: 7px;
+    }
+
+    > strong {
+        white-space: nowrap;
+    }
+}
+
+.primer-contacto-estado {
+    display: inline-flex;
+    width: fit-content;
+    padding: 5px 9px;
+    border-radius: 999px;
+    color: #334155;
+    background: #e2e8f0;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.primer-contacto-estado-nuevo {
+    color: #166534;
+    background: #dcfce7;
+}
+
+.primer-contacto-estado-existe_en_crm {
+    color: #5b21b6;
+    background: #ede9fe;
+}
+
+.primer-contacto-estado-contactado_por_otra {
+    color: #1d4ed8;
+    background: #dbeafe;
+}
+
+.primer-contacto-estado-contactado_por_mi {
+    color: #92400e;
+    background: #fef3c7;
+}
+
+.primer-contacto-estado-invalido,
+.primer-contacto-estado-duplicado_tanda {
+    color: #991b1b;
+    background: #fee2e2;
+}
+
+.primer-contacto-cliente {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+    padding: 12px;
+    border-radius: 12px;
+    color: #334155;
+    background: #f1f5f9;
+
+    span {
+        color: #4f46e5;
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+    }
+}
+
+.primer-contacto-aviso-crm {
+    padding: 10px 12px;
+    border-left: 4px solid #7c3aed;
+    border-radius: 8px;
+    color: #4c1d95;
+    background: #f5f3ff;
+    font-weight: 700;
+}
+
+.primer-contacto-historial {
+    border-top: 1px solid #e2e8f0;
+    padding-top: 12px;
+
+    summary {
+        cursor: pointer;
+        color: #4f46e5;
+        font-weight: 800;
+    }
+
+    ol {
+        display: grid;
+        gap: 8px;
+        margin: 12px 0 0;
+        padding-left: 20px;
+    }
+
+    li {
+        display: grid;
+        grid-template-columns: minmax(130px, auto) minmax(100px, auto) 1fr;
+        gap: 8px;
+        color: #475569;
+        font-size: 13px;
+    }
+}
+
+.primer-contacto-modal-overlay {
+    position: fixed;
+    z-index: 10030;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(15, 23, 42, 0.58);
+    backdrop-filter: blur(4px);
+
+    &[hidden] {
+        display: none;
+    }
+}
+
+.primer-contacto-modal {
+    width: min(560px, 100%);
+    max-height: calc(100dvh - 40px);
+    overflow: auto;
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 28px 70px rgba(15, 23, 42, 0.3);
+
+    > header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 20px;
+        border-bottom: 1px solid #e2e8f0;
+
+        span {
+            color: #4f46e5;
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        h2 {
+            margin: 2px 0 0;
+        }
+
+        > button {
+            min-width: 40px;
+            padding: 7px 10px;
+            font-size: 24px;
+        }
+    }
+
+    form,
+    .primer-contacto-multiple-body {
+        display: grid;
+        gap: 16px;
+        padding: 20px;
+    }
+
+    label {
+        display: grid;
+        gap: 7px;
+        color: #334155;
+        font-weight: 700;
+    }
+
+    textarea {
+        resize: vertical;
+    }
+}
+
+.primer-contacto-modal-multiple {
+    width: min(760px, 100%);
+}
+
+.primer-contacto-modal-actions {
+    justify-content: flex-end;
+    padding: 16px 20px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.primer-contacto-analisis {
+    padding: 12px;
+    border-radius: 14px;
+    background: #f8fafc;
+}
+
+.primer-contacto-preview {
+    display: grid;
+    gap: 9px;
+}
+
+.primer-contacto-preview-item {
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+
+    label {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        align-items: start;
+        gap: 12px;
+    }
+
+    input {
+        width: 18px;
+        height: 18px;
+        margin-top: 2px;
+    }
+
+    label > span {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    small {
+        width: 100%;
+        color: #64748b;
+    }
+}
+
+@media (max-width: 980px) {
+    .primer-contacto-toolbar {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .primer-contacto-listado {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .primer-contacto-header {
+        padding: 18px;
+        flex-direction: column;
+    }
+
+    .primer-contacto-actions,
+    .primer-contacto-actions button,
+    .primer-contacto-card-actions,
+    .primer-contacto-card-actions button {
+        width: 100%;
+    }
+
+    .primer-contacto-toolbar {
+        grid-template-columns: 1fr;
+    }
+
+    .primer-contacto-search > div {
+        grid-template-columns: 1fr;
+    }
+
+    .primer-contacto-resumen-head {
+        flex-direction: column;
+    }
+
+    .primer-contacto-historial li {
+        grid-template-columns: 1fr;
+    }
+
+    .primer-contacto-modal-overlay {
+        padding: 0;
+    }
+
+    .primer-contacto-modal {
+        width: 100%;
+        height: 100dvh;
+        max-height: 100dvh;
+        border-radius: 0;
+    }
+}
+
 * {
     box-sizing: border-box;
 }

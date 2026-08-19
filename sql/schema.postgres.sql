@@ -77,7 +77,34 @@ CREATE TABLE IF NOT EXISTS cotizaciones (
                 'pendiente_mora',
                 'baja_mora'
             )
-        )
+    )
+);
+
+CREATE TABLE IF NOT EXISTS primer_contacto_identidades (
+    id BIGSERIAL PRIMARY KEY,
+    telefono_original TEXT NOT NULL,
+    telefono_normalizado TEXT NOT NULL,
+    cliente_id BIGINT REFERENCES clientes(id) ON DELETE SET NULL,
+    nombre TEXT,
+    fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT now(),
+    fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT primer_contacto_telefono_unique
+        UNIQUE (telefono_normalizado),
+    CONSTRAINT primer_contacto_telefono_check
+        CHECK (LENGTH(TRIM(telefono_normalizado)) BETWEEN 8 AND 15)
+);
+
+CREATE TABLE IF NOT EXISTS primer_contacto_gestiones (
+    id BIGSERIAL PRIMARY KEY,
+    contacto_id BIGINT NOT NULL
+        REFERENCES primer_contacto_identidades(id) ON DELETE CASCADE,
+    usuario_id BIGINT REFERENCES usuarios(id) ON DELETE SET NULL,
+    asesora TEXT NOT NULL,
+    observacion TEXT,
+    clave_idempotencia TEXT NOT NULL,
+    fecha TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT primer_contacto_gestion_idempotente_unique
+        UNIQUE (asesora, clave_idempotencia)
 );
 
 CREATE TABLE IF NOT EXISTS tareas_crm (
@@ -188,6 +215,15 @@ CREATE INDEX IF NOT EXISTS idx_cotizaciones_fecha_alta
 
 CREATE INDEX IF NOT EXISTS idx_cotizaciones_estado_posventa
     ON cotizaciones (estado_posventa);
+
+CREATE INDEX IF NOT EXISTS idx_primer_contacto_cliente
+    ON primer_contacto_identidades (cliente_id);
+
+CREATE INDEX IF NOT EXISTS idx_primer_contacto_gestiones_contacto_fecha
+    ON primer_contacto_gestiones (contacto_id, fecha DESC);
+
+CREATE INDEX IF NOT EXISTS idx_primer_contacto_gestiones_asesora_fecha
+    ON primer_contacto_gestiones (asesora, fecha DESC);
 
 CREATE INDEX IF NOT EXISTS idx_archivos_cotizacion_id
     ON archivos (cotizacion_id);
