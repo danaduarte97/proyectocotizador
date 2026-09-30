@@ -129,6 +129,7 @@ async function cargarUsuarios() {
 
     const usuarios = await res.json();
     usuariosCargados = usuarios;
+    actualizarSelectorAsesorasInicio(usuarios);
     actualizarVistasPrimerContacto(
         usuarios
             .filter(user => user.rol === "vendedora")
@@ -511,6 +512,8 @@ function totalOpcionCotizacion(opcion) {
 }
 
 function renderTablaPdfOpcion(opcion, cotizacion) {
+    const bonificacionComercial = Number(opcion.bonificacion || 0);
+
     return `
         <section class="pdf-opcion" data-pdf-opcion="${opcion.numero_opcion}">
             <div class="pdf-opcion-titulo">
@@ -547,11 +550,13 @@ function renderTablaPdfOpcion(opcion, cotizacion) {
                         <td></td>
                         <td>$ ${Number(opcion.valor || 0).toLocaleString("es-AR")}</td>
                     </tr>
-                    <tr>
-                        <td>Bonificaci&oacute;n comercial</td>
-                        <td></td>
-                        <td>- $ ${Number(opcion.bonificacion || 0).toLocaleString("es-AR")}</td>
-                    </tr>
+                    ${bonificacionComercial > 0 ? `
+                        <tr>
+                            <td>Bonificaci&oacute;n comercial</td>
+                            <td></td>
+                            <td>- $ ${bonificacionComercial.toLocaleString("es-AR")}</td>
+                        </tr>
+                    ` : ""}
                     <tr>
                         <td>Bonificaci&oacute;n por aportes</td>
                         <td></td>
@@ -709,7 +714,10 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                             <p><b>Fecha de emisi&oacute;n:</b> ${formatearFechaArgentina(c.fecha)}</p>
                             <p><b>Vigencia de la cotizaci&oacute;n:</b> ${formatearFechaArgentina(c.vigencia)}</p>
                             <p><b>Asesora comercial:</b> ${c.vendedora}</p>
-                            <p><b>Contacto Asismed:</b> WhatsApp 1138687033</p>
+                            <p>
+                                <b>Tel&eacute;fono de la asesora:</b>
+                                <span data-telefono-asesora>No informado</span>
+                            </p>
                         </div>
 
                         <p class="pdf-aclaracion">
@@ -1044,9 +1052,219 @@ let inicioDatosCrm = {
 let inicioMesActivo = new Date();
 let inicioFechaSeleccionada = "";
 let inicioCargaCompleta = false;
+let inicioAsesoraSeleccionada = "";
 let estadoModalTareas = "pendiente";
 let tareasModalActuales = [];
 let botonOrigenModalTareas = null;
+
+function actualizarSelectorAsesorasInicio(usuarios = usuariosCargados) {
+    const control = document.getElementById("inicioAsesoraControl");
+    const select = document.getElementById("inicioAsesora");
+
+    if (!control || !select) return;
+
+    control.hidden = !esAdmin();
+    if (!esAdmin()) return;
+
+    const seleccion = inicioAsesoraSeleccionada;
+    const asesoras = usuarios
+        .filter(usuario => usuario.rol === "vendedora")
+        .sort((a, b) => a.usuario.localeCompare(b.usuario, "es"));
+
+    select.innerHTML = `
+        <option value="">Todas las asesoras</option>
+        ${asesoras.map(asesora => `
+            <option value="${escaparHtml(asesora.usuario)}">${escaparHtml(asesora.usuario)}</option>
+        `).join("")}
+    `;
+    select.value = asesoras.some(asesora => asesora.usuario === seleccion)
+        ? seleccion
+        : "";
+    inicioAsesoraSeleccionada = select.value;
+}
+
+function queryAsesoraInicio() {
+    if (!esAdmin() || !inicioAsesoraSeleccionada) return "";
+    return `asesora=${encodeURIComponent(inicioAsesoraSeleccionada)}`;
+}
+
+function agregarQueryAsesoraInicio(url) {
+    const filtro = queryAsesoraInicio();
+    if (!filtro) return url;
+    return `${url}${url.includes("?") ? "&" : "?"}${filtro}`;
+}
+
+let selectPersonalizadoActivo = null;
+let menuSelectPersonalizado = null;
+
+function cerrarSelectPersonalizado(devolverFoco = false) {
+    if (!menuSelectPersonalizado) return;
+
+    const boton = selectPersonalizadoActivo?._selectPersonalizadoBoton;
+    menuSelectPersonalizado.remove();
+    menuSelectPersonalizado = null;
+    selectPersonalizadoActivo = null;
+    boton?.setAttribute("aria-expanded", "false");
+    if (devolverFoco) boton?.focus();
+}
+
+function sincronizarSelectPersonalizado(select) {
+    const boton = select?._selectPersonalizadoBoton;
+    const opcion = select?.selectedOptions?.[0];
+    if (!boton || !opcion) return;
+
+    boton.querySelector(".select-personalizado-texto").textContent = opcion.textContent.trim();
+    boton.disabled = select.disabled;
+}
+
+function enfocarOpcionSelect(menu, indice) {
+    const opciones = [...menu.querySelectorAll("[role='option']:not(:disabled)")];
+    if (!opciones.length) return;
+    opciones[Math.max(0, Math.min(indice, opciones.length - 1))].focus();
+}
+
+function abrirSelectPersonalizado(select) {
+    if (selectPersonalizadoActivo === select) {
+        cerrarSelectPersonalizado(true);
+        return;
+    }
+
+    cerrarSelectPersonalizado();
+    const boton = select._selectPersonalizadoBoton;
+    const rect = boton.getBoundingClientRect();
+    const menu = document.createElement("div");
+    menu.className = "select-personalizado-menu";
+    menu.setAttribute("role", "listbox");
+    menu.setAttribute("aria-label", select.getAttribute("aria-label") || "Opciones");
+
+    [...select.options].forEach((opcion, indice) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "select-personalizado-opcion";
+        item.textContent = opcion.textContent.trim();
+        item.dataset.indice = String(indice);
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", String(opcion.selected));
+        item.disabled = opcion.disabled;
+        if (opcion.selected) item.classList.add("seleccionada");
+        item.addEventListener("click", () => {
+            select.selectedIndex = indice;
+            sincronizarSelectPersonalizado(select);
+            cerrarSelectPersonalizado(true);
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        menu.appendChild(item);
+    });
+
+    document.body.appendChild(menu);
+    const ancho = Math.max(rect.width, 190);
+    const altoDisponibleAbajo = window.innerHeight - rect.bottom - 12;
+    const altoDisponibleArriba = rect.top - 12;
+    const abrirArriba = altoDisponibleAbajo < 220 && altoDisponibleArriba > altoDisponibleAbajo;
+    const altoMaximo = Math.max(140, Math.min(320, abrirArriba ? altoDisponibleArriba : altoDisponibleAbajo));
+    menu.style.width = `${Math.min(ancho, window.innerWidth - 24)}px`;
+    menu.style.maxHeight = `${altoMaximo}px`;
+    menu.style.left = `${Math.min(rect.left, window.innerWidth - menu.offsetWidth - 12)}px`;
+    menu.style.top = abrirArriba
+        ? `${Math.max(12, rect.top - menu.offsetHeight - 6)}px`
+        : `${rect.bottom + 6}px`;
+
+    selectPersonalizadoActivo = select;
+    menuSelectPersonalizado = menu;
+    boton.setAttribute("aria-expanded", "true");
+
+    menu.addEventListener("keydown", event => {
+        const opciones = [...menu.querySelectorAll("[role='option']:not(:disabled)")];
+        const actual = opciones.indexOf(document.activeElement);
+        if (event.key === "ArrowDown") {
+            event.preventDefault();
+            enfocarOpcionSelect(menu, actual + 1);
+        } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            enfocarOpcionSelect(menu, actual - 1);
+        } else if (event.key === "Home") {
+            event.preventDefault();
+            enfocarOpcionSelect(menu, 0);
+        } else if (event.key === "End") {
+            event.preventDefault();
+            enfocarOpcionSelect(menu, opciones.length - 1);
+        } else if (event.key === "Escape" || event.key === "Tab") {
+            cerrarSelectPersonalizado(event.key === "Escape");
+        }
+    });
+
+    const seleccionada = menu.querySelector(".seleccionada");
+    (seleccionada || menu.querySelector("[role='option']:not(:disabled)"))?.focus();
+}
+
+function mejorarSelectPersonalizado(select) {
+    if (select.dataset.selectPersonalizadoListo === "true") return;
+
+    select.dataset.selectPersonalizadoListo = "true";
+    select.classList.add("select-personalizado-original");
+    const boton = document.createElement("button");
+    boton.type = "button";
+    boton.className = "select-personalizado-trigger";
+    boton.innerHTML = `
+        <span class="select-personalizado-texto"></span>
+        <span class="select-personalizado-flecha" aria-hidden="true"></span>
+    `;
+    boton.setAttribute("aria-haspopup", "listbox");
+    boton.setAttribute("aria-expanded", "false");
+    boton.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        abrirSelectPersonalizado(select);
+    });
+    boton.addEventListener("keydown", event => {
+        if (["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) {
+            event.preventDefault();
+            abrirSelectPersonalizado(select);
+        }
+    });
+    select.insertAdjacentElement("afterend", boton);
+    select._selectPersonalizadoBoton = boton;
+    select.addEventListener("change", () => sincronizarSelectPersonalizado(select));
+    new MutationObserver(() => sincronizarSelectPersonalizado(select)).observe(select, {
+        childList: true,
+        subtree: true,
+        attributes: true
+    });
+    sincronizarSelectPersonalizado(select);
+}
+
+function inicializarSelectoresPersonalizados(raiz = document) {
+    raiz.querySelectorAll?.("select[data-select-personalizado]").forEach(mejorarSelectPersonalizado);
+}
+
+function prepararSelectoresPersonalizados() {
+    inicializarSelectoresPersonalizados();
+    new MutationObserver(cambios => {
+        cambios.forEach(cambio => cambio.addedNodes.forEach(nodo => {
+            if (nodo.nodeType !== Node.ELEMENT_NODE) return;
+            if (nodo.matches?.("select[data-select-personalizado]")) mejorarSelectPersonalizado(nodo);
+            inicializarSelectoresPersonalizados(nodo);
+        }));
+    }).observe(document.body, { childList: true, subtree: true });
+
+    document.addEventListener("click", event => {
+        if (!menuSelectPersonalizado?.contains(event.target)) cerrarSelectPersonalizado();
+    });
+    document.addEventListener("keydown", event => {
+        if (event.key === "Escape" && menuSelectPersonalizado) cerrarSelectPersonalizado(true);
+    });
+    window.addEventListener("resize", () => cerrarSelectPersonalizado());
+    document.addEventListener("scroll", event => {
+        if (menuSelectPersonalizado?.contains(event.target)) return;
+        cerrarSelectPersonalizado();
+    }, true);
+}
+
+async function cambiarAsesoraInicio() {
+    inicioAsesoraSeleccionada = document.getElementById("inicioAsesora")?.value || "";
+    inicioFechaSeleccionada = "";
+    await cargarInicioCrm();
+}
 
 function etapaClase(etapa) {
     const normalizada = String(etapa || "sin-cotizacion")
@@ -1646,6 +1864,7 @@ function renderSelectorEtapa(cotizacion) {
         <label class="pipeline-selector" data-no-drag>
             <select
                 data-no-drag
+                data-select-personalizado
                 aria-label="Etapa"
                 onchange="cambiarEtapaPipeline(${cotizacion.id}, this.value)"
             >
@@ -2467,7 +2686,7 @@ async function cargarTareasMesInicio() {
     if (inicioFechaSeleccionada) renderTareasInicio([], "loading");
 
     try {
-        const res = await fetch(`/tareas?mes=${mesIso(inicioMesActivo)}`, {
+        const res = await fetch(agregarQueryAsesoraInicio(`/tareas?mes=${mesIso(inicioMesActivo)}`), {
             headers: authHeaders()
         });
 
@@ -2610,7 +2829,7 @@ async function cargarModalTodasTareas() {
     contenedor.innerHTML = `<p class="inicio-empty">Cargando tareas...</p>`;
 
     try {
-        const res = await fetch(`/tareas?${parametrosModalTareas().toString()}`, {
+        const res = await fetch(agregarQueryAsesoraInicio(`/tareas?${parametrosModalTareas().toString()}`), {
             headers: authHeaders()
         });
 
@@ -2707,10 +2926,16 @@ async function guardarTareaInicio() {
         cotizacion_id: cotizacionId || null
     };
 
+    if (esAdmin() && !inicioAsesoraSeleccionada && !id) {
+        mostrarToast("Seleccioná una asesora para crear la tarea", "error");
+        return;
+    }
+
     mostrarLoader();
 
     try {
-        const res = await fetch(id ? `/tareas/${id}` : "/tareas", {
+        const url = id ? `/tareas/${id}` : agregarQueryAsesoraInicio("/tareas");
+        const res = await fetch(url, {
             method: id ? "PUT" : "POST",
             headers: authHeaders(),
             body: JSON.stringify(payload)
@@ -2779,9 +3004,9 @@ async function cargarInicioCrm(silencioso = false) {
 
     try {
         const [resumenRes, pendientesRes, mesRes] = await Promise.all([
-            fetch("/inicio/resumen", { headers: authHeaders() }),
-            fetch("/tareas?estado=pendiente", { headers: authHeaders() }),
-            fetch(`/tareas?mes=${mesIso(inicioMesActivo)}`, {
+            fetch(agregarQueryAsesoraInicio("/inicio/resumen"), { headers: authHeaders() }),
+            fetch(agregarQueryAsesoraInicio("/tareas?estado=pendiente"), { headers: authHeaders() }),
+            fetch(agregarQueryAsesoraInicio(`/tareas?mes=${mesIso(inicioMesActivo)}`), {
                 headers: authHeaders()
             })
         ]);
@@ -3771,6 +3996,15 @@ async function descargarPDF(id, modo = "opcion-1", cardId = `card-${id}`) {
         mostrarToast("Generando PDF...", "success");
         mostrarLoader();
         loaderActivo = true;
+
+        const telefonoRes = await fetch(`/cotizaciones/${id}/telefono-asesora`, {
+            headers: authHeaders()
+        });
+        if (telefonoRes.ok) {
+            const dataTelefono = await telefonoRes.json();
+            const telefonoPdf = documento.querySelector("[data-telefono-asesora]");
+            if (telefonoPdf) telefonoPdf.textContent = dataTelefono.telefono || "No informado";
+        }
 
         renderHost = document.createElement("div");
         renderHost.className = "pdf-render-host";
@@ -5092,8 +5326,10 @@ window.onload = function () {
     }
 
     prepararInicioCrm();
+    prepararSelectoresPersonalizados();
     cargarUsuarios();
     cargarInicioCrm();
+    prepararTelefonoAsesora();
     calcularIMCAutomatico();
     calcularIMCPediatrico();
 
@@ -5671,6 +5907,38 @@ async function cargarMisCotizacionesAnterior() {
         `;
 
     });
+}
+
+async function prepararTelefonoAsesora() {
+    const contenedor = document.getElementById("perfilTelefonoAsesora");
+    if (!contenedor) return;
+
+    const payload = obtenerPayload();
+    contenedor.hidden = payload?.rol !== "vendedora";
+    if (contenedor.hidden) return;
+
+    try {
+        const res = await fetch("/mi-telefono", { headers: authHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        document.getElementById("telefonoAsesora").value = data.telefono || "";
+    } catch (error) {
+        console.error("[telefono asesora]", error);
+    }
+}
+
+async function guardarTelefonoAsesora() {
+    const telefono = document.getElementById("telefonoAsesora")?.value.trim() || "";
+    const res = await fetch("/mi-telefono", {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({ telefono })
+    });
+    const data = await res.json().catch(() => ({}));
+    mostrarToast(
+        res.ok ? "Teléfono actualizado" : (data.error || "No se pudo actualizar el teléfono"),
+        res.ok ? "success" : "error"
+    );
 }
 
 async function cargarMisCotizaciones() {

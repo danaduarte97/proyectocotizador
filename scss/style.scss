@@ -25,6 +25,181 @@ $pipeline-neutral: #dfeaf3;
     --tarea-vencida: #{$error};
 }
 
+.inicio-seguimiento-controles,
+.inicio-seguimiento-controles label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.inicio-seguimiento-controles label[hidden] {
+    display: none;
+}
+
+.inicio-seguimiento-controles label span {
+    white-space: nowrap;
+    font-weight: 700;
+}
+
+.inicio-seguimiento-controles select {
+    width: auto;
+    min-width: 190px;
+    margin: 0;
+}
+
+.select-personalizado-original {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+.select-personalizado-trigger {
+    display: flex;
+    width: 100%;
+    min-width: 190px;
+    min-height: 40px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin: 0;
+    padding: 9px 13px;
+    border: 1px solid #c8d9e7;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #fff 0%, #f7fafc 100%);
+    box-shadow: 0 3px 10px rgba(27, 79, 114, 0.07);
+    color: $text;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+
+    &:hover {
+        border-color: rgba(46, 134, 193, 0.65);
+        box-shadow: 0 5px 14px rgba(27, 79, 114, 0.12);
+    }
+
+    &:focus-visible,
+    &[aria-expanded="true"] {
+        border-color: $primary;
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(46, 134, 193, 0.16), 0 6px 16px rgba(27, 79, 114, 0.12);
+    }
+}
+
+.select-personalizado-texto {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.select-personalizado-flecha {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 8px;
+    border-right: 2px solid $secondary;
+    border-bottom: 2px solid $secondary;
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform 0.18s ease;
+}
+
+.select-personalizado-trigger[aria-expanded="true"] .select-personalizado-flecha {
+    transform: translateY(2px) rotate(225deg);
+}
+
+.select-personalizado-menu {
+    position: fixed;
+    z-index: 10000;
+    display: grid;
+    gap: 4px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 7px;
+    border: 1px solid rgba(46, 134, 193, 0.24);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 18px 42px rgba(15, 42, 61, 0.2);
+    backdrop-filter: blur(10px);
+    animation: selectMenuEntrada 0.14s ease-out;
+}
+
+.select-personalizado-opcion {
+    position: relative;
+    width: 100%;
+    min-height: 38px;
+    margin: 0;
+    padding: 9px 36px 9px 11px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    box-shadow: none;
+    color: $text;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    transition: background 0.14s ease, color 0.14s ease;
+
+    &:hover,
+    &:focus-visible {
+        outline: none;
+        background: #eaf4fb;
+        color: $secondary;
+    }
+
+    &.seleccionada {
+        background: linear-gradient(135deg, #dceefa 0%, #edf7fd 100%);
+        color: $secondary;
+        font-weight: 800;
+
+        &::after {
+            content: "✓";
+            position: absolute;
+            right: 12px;
+            color: $primary;
+            font-weight: 900;
+        }
+    }
+}
+
+.pipeline-selector .select-personalizado-trigger {
+    min-width: 0;
+    min-height: 30px;
+    padding: 5px 8px;
+    border-radius: 7px;
+    font-size: 11px;
+}
+
+@keyframes selectMenuEntrada {
+    from {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.985);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@media (max-width: 767px) {
+    .inicio-seguimiento-controles,
+    .inicio-seguimiento-controles label {
+        width: 100%;
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .select-personalizado-trigger {
+        width: 100%;
+        min-width: 0;
+    }
+}
+
 // =======================
 // PRIMER CONTACTO
 // =======================
@@ -2882,6 +3057,60 @@ button {
     background: #ffffff;
     border-bottom: 1px solid #dce6ee;
     box-shadow: 0 3px 14px rgba(27, 79, 114, 0.08);
+}
+
+.perfil-container {
+    display: grid;
+    gap: 22px;
+    max-width: 800px;
+}
+
+.perfil-header {
+    h2 {
+        margin: 0 0 6px;
+        color: $secondary;
+    }
+
+    p {
+        margin: 0;
+        color: #64748b;
+    }
+}
+
+.perfil-card {
+    display: grid;
+    gap: 14px;
+    padding: 22px;
+    border: 1px solid rgba(46, 134, 193, 0.18);
+    border-radius: 14px;
+    background: #f8fbfd;
+
+    &[hidden] {
+        display: none;
+    }
+
+    h3 {
+        margin: 0;
+        color: $secondary;
+        font-size: 18px;
+    }
+
+    > p {
+        margin: -6px 0 2px;
+        color: #64748b;
+        line-height: 1.45;
+    }
+
+    input {
+        margin: 0;
+    }
+
+    > button {
+        justify-self: start;
+        width: auto;
+        min-width: 180px;
+        margin: 2px 0 0;
+    }
 }
 
 .topbar-brand {

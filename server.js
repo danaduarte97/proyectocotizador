@@ -238,7 +238,7 @@ const ESTADO_COTIZACION_SQL = `
 
 const SELECT_COTIZACIONES = `
     SELECT
-        *,
+        cotizaciones.*,
         ${ESTADO_COTIZACION_SQL} AS estado
     FROM cotizaciones
 `;
@@ -1186,6 +1186,7 @@ db.serialize(() => {
         usuario TEXT UNIQUE,
         password TEXT,
         rol TEXT,
+        telefono TEXT,
         orden_login INTEGER
     )
     `);
@@ -3880,6 +3881,45 @@ app.put("/cambiar-password", verificarToken, async (req, res) => {
     );
 });
 
+app.get("/mi-telefono", verificarToken, async (req, res) => {
+    if (req.user.rol !== "vendedora") {
+        return res.status(403).json({ error: "Disponible únicamente para asesoras" });
+    }
+
+    try {
+        const usuario = await dbGetAsync(
+            "SELECT telefono FROM usuarios WHERE TRIM(usuario) = TRIM(?) AND rol = 'vendedora'",
+            [req.user.usuario]
+        );
+        if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
+        res.json({ telefono: usuario.telefono || "" });
+    } catch (error) {
+        res.status(500).json({ error: "No se pudo cargar el teléfono" });
+    }
+});
+
+app.put("/mi-telefono", verificarToken, async (req, res) => {
+    if (req.user.rol !== "vendedora") {
+        return res.status(403).json({ error: "Disponible únicamente para asesoras" });
+    }
+
+    const telefono = String(req.body.telefono || "").trim();
+    if (telefono.length > 40 || (telefono && !/^[+0-9()\-\s]+$/.test(telefono))) {
+        return res.status(400).json({ error: "Teléfono inválido" });
+    }
+
+    try {
+        const resultado = await dbRunAsync(
+            "UPDATE usuarios SET telefono = ? WHERE TRIM(usuario) = TRIM(?) AND rol = 'vendedora'",
+            [telefono || null, req.user.usuario]
+        );
+        if (!resultado.changes) return res.status(404).json({ error: "Usuario no encontrado" });
+        res.json({ success: true, telefono });
+    } catch (error) {
+        res.status(500).json({ error: "No se pudo actualizar el teléfono" });
+    }
+});
+
 app.delete("/comentarios/:id", verificarToken, (req, res) => {
     db.get(
         "SELECT * FROM comentarios_cotizacion WHERE id = ?",
@@ -3937,9 +3977,20 @@ function rangoMesDesdeQuery(mes) {
 
 function filtroCotizacionesPorRol(req, alias = "cotizaciones") {
     if (req.user.rol === "admin") {
+        const asesora = String(req.query.asesora || "").trim();
+
         return {
-            sql: "",
-            params: []
+            sql: asesora
+                ? `${alias}.vendedora = ? AND EXISTS (
+                    SELECT 1 FROM usuarios
+                    WHERE usuarios.rol = 'vendedora'
+                      AND TRIM(usuarios.usuario) = TRIM(?)
+                )`
+                : `${alias}.vendedora IN (
+                    SELECT usuarios.usuario FROM usuarios
+                    WHERE usuarios.rol = 'vendedora'
+                )`,
+            params: asesora ? [asesora, asesora] : []
         };
     }
 
@@ -3947,6 +3998,36 @@ function filtroCotizacionesPorRol(req, alias = "cotizaciones") {
         sql: `${alias}.vendedora = ?`,
         params: [req.user.usuario]
     };
+}
+
+function agregarFiltroTareasPorRol(req, condiciones, parametros) {
+    if (req.user.rol !== "admin") {
+        condiciones.push("tareas_crm.usuario_responsable = ?");
+        parametros.push(req.user.usuario);
+        return;
+    }
+
+    const asesora = String(req.query.asesora || "").trim();
+
+    if (asesora) {
+        condiciones.push(`
+            tareas_crm.usuario_responsable = ?
+            AND EXISTS (
+                SELECT 1 FROM usuarios
+                WHERE usuarios.rol = 'vendedora'
+                  AND TRIM(usuarios.usuario) = TRIM(?)
+            )
+        `);
+        parametros.push(asesora, asesora);
+        return;
+    }
+
+    condiciones.push(`
+        tareas_crm.usuario_responsable IN (
+            SELECT usuarios.usuario FROM usuarios
+            WHERE usuarios.rol = 'vendedora'
+        )
+    `);
 }
 
 function agregarFiltroRol(req, condiciones, parametros, alias = "cotizaciones") {
@@ -4507,15 +4588,24 @@ async function obtenerEstadisticasInicio(req) {
         [rango.inicio, rango.fin, ...paramsRol]
     );
 
-    const seguimientosParams = req.user.rol === "admin"
-        ? [rango.hoy, rango.hoy]
-        : [rango.hoy, req.user.usuario, rango.hoy, req.user.usuario];
-    const seguimientosWhereTareas = req.user.rol === "admin"
-        ? ""
-        : "AND tareas_crm.usuario_responsable = ?";
-    const seguimientosWhereCotizaciones = req.user.rol === "admin"
-        ? ""
-        : "AND cotizaciones.vendedora = ?";
+    const condicionesTareas = [];
+    const parametrosTareas = [];
+    agregarFiltroTareasPorRol(req, condicionesTareas, parametrosTareas);
+    const condicionesCotizaciones = [];
+    const parametrosCotizaciones = [];
+    agregarFiltroRol(req, condicionesCotizaciones, parametrosCotizaciones);
+    const seguimientosParams = [
+        rango.hoy,
+        ...parametrosTareas,
+        rango.hoy,
+        ...parametrosCotizaciones
+    ];
+    const seguimientosWhereTareas = condicionesTareas.length
+        ? `AND ${condicionesTareas.join(" AND ")}`
+        : "";
+    const seguimientosWhereCotizaciones = condicionesCotizaciones.length
+        ? `AND ${condicionesCotizaciones.join(" AND ")}`
+        : "";
     const seguimientosPendientes = await dbGetAsync(
         `
         SELECT COUNT(*) AS total
@@ -4598,10 +4688,7 @@ async function obtenerTareasInicio(req, limite = 50) {
     const condiciones = [];
     const parametros = [];
 
-    if (req.user.rol !== "admin") {
-        condiciones.push("tareas_crm.usuario_responsable = ?");
-        parametros.push(req.user.usuario);
-    }
+    agregarFiltroTareasPorRol(req, condiciones, parametros);
 
     const rows = await dbAllAsync(
         `
@@ -4649,6 +4736,22 @@ app.get("/pipeline", verificarToken, async (req, res) => {
         res.json(await obtenerPipelineInicio(req));
     } catch (error) {
         res.status(500).json({ error: "No se pudo cargar el pipeline" });
+    }
+});
+
+app.get("/cotizaciones/:id/telefono-asesora", verificarToken, async (req, res) => {
+    try {
+        const cotizacion = await obtenerCotizacionPermitida(req, req.params.id);
+        const usuario = await dbGetAsync(
+            `SELECT telefono FROM usuarios
+             WHERE rol = 'vendedora' AND TRIM(usuario) = TRIM(?)`,
+            [cotizacion.vendedora]
+        );
+        res.json({ telefono: usuario?.telefono || "" });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo cargar el teléfono"
+        });
     }
 });
 
@@ -4785,10 +4888,7 @@ app.get("/tareas", verificarToken, async (req, res) => {
     const condiciones = [];
     const parametros = [];
 
-    if (req.user.rol !== "admin") {
-        condiciones.push("tareas_crm.usuario_responsable = ?");
-        parametros.push(req.user.usuario);
-    }
+    agregarFiltroTareasPorRol(req, condiciones, parametros);
 
     if (req.query.estado && !ESTADOS_TAREA_CRM.includes(String(req.query.estado))) {
         return res.status(400).json({ error: "Estado de tarea inválido" });
@@ -4925,7 +5025,16 @@ app.post("/tareas", verificarToken, async (req, res) => {
         const tarea = normalizarTareaBody(req.body);
 
         const resultado = await db.transaction(async tx => {
-            const usuario = await obtenerUsuarioAutenticado(req, tx);
+            const asesora = req.user.rol === "admin"
+                ? String(req.query.asesora || "").trim()
+                : req.user.usuario;
+            if (!asesora) {
+                throw errorHttp(400, "Seleccioná una asesora para crear la tarea");
+            }
+            const usuario = await obtenerUsuarioPorNombre(asesora, tx);
+            if (!usuario || usuario.rol !== "vendedora") {
+                throw errorHttp(400, "La responsable debe ser una asesora");
+            }
             const vinculo = await resolverClienteTarea(
                 req,
                 req.body.cotizacion_id || null,
@@ -4958,7 +5067,7 @@ app.post("/tareas", verificarToken, async (req, res) => {
                     tarea.tipo,
                     tarea.estado,
                     usuario?.id || null,
-                    req.user.usuario,
+                    asesora,
                     vinculo.cotizacion_id,
                     vinculo.cliente_id
                 ]
@@ -5119,10 +5228,7 @@ app.get("/calendario", verificarToken, async (req, res) => {
     ];
     const parametros = [rango.inicio, rango.fin];
 
-    if (req.user.rol !== "admin") {
-        condiciones.push("tareas_crm.usuario_responsable = ?");
-        parametros.push(req.user.usuario);
-    }
+    agregarFiltroTareasPorRol(req, condiciones, parametros);
 
     try {
         const tareas = await dbAllAsync(

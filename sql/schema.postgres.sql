@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     usuario TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
     rol TEXT NOT NULL,
+    telefono TEXT,
     orden_login INTEGER
 );
 

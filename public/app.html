@@ -42,7 +42,7 @@
                 <div id="userDropdown" class="user-dropdown">
                     <button onclick="mostrarSeccion('perfil')">
                         <img class="icono-menu" src="img/imgicon-password.png" alt="">
-                        <span>Cambiar contraseña</span>
+                        <span>Mi perfil</span>
                     </button>
 
                     <button onclick="logout()">
@@ -167,9 +167,18 @@
                         <section class="inicio-panel inicio-panel-pipeline">
                             <div class="inicio-section-bar">
                                 <h3>Seguimiento comercial</h3>
-                                <button type="button" class="inicio-refresh-btn" onclick="cargarInicioCrm()">
-                                    Actualizar
-                                </button>
+                                <div class="inicio-seguimiento-controles">
+                                    <label id="inicioAsesoraControl" hidden>
+                                        <span>Ver seguimiento de:</span>
+                                        <select id="inicioAsesora" data-select-personalizado
+                                            onchange="cambiarAsesoraInicio()">
+                                            <option value="">Todas las asesoras</option>
+                                        </select>
+                                    </label>
+                                    <button type="button" class="inicio-refresh-btn" onclick="cargarInicioCrm()">
+                                        Actualizar
+                                    </button>
+                                </div>
                             </div>
 
                             <div id="inicioPipeline" class="pipeline-board" aria-live="polite"></div>
@@ -330,7 +339,7 @@
                             </label>
                             <label>
                                 <span>Etapa</span>
-                                <select id="filtroTareasEtapa">
+                                <select id="filtroTareasEtapa" data-select-personalizado>
                                     <option value="">Todas</option>
                                     <option value="Nuevos">Nuevos</option>
                                     <option value="Contactados">Contactados</option>
@@ -845,29 +854,46 @@
             </section>
             <section id="perfil" class="seccion" style="display:none;">
 
-                <div class="container">
+                <div class="container perfil-container">
 
-                    <h2>Cambiar contraseña</h2>
+                    <header class="perfil-header">
+                        <h2>Mi perfil</h2>
+                        <p>Administr&aacute; tus datos de contacto y la seguridad de tu cuenta.</p>
+                    </header>
 
-                    <div class="password-box">
-                        <input type="password" id="passwordActual" placeholder="Contraseña actual">
+                    <section id="perfilTelefonoAsesora" class="perfil-card" hidden>
+                        <h3>Tel&eacute;fono de contacto</h3>
+                        <p>Este tel&eacute;fono se mostrar&aacute; en tus cotizaciones y PDF.</p>
+                        <input type="tel" id="telefonoAsesora" placeholder="Ej.: 11 1234-5678">
+                        <button type="button" onclick="guardarTelefonoAsesora()">
+                            Guardar tel&eacute;fono
+                        </button>
+                    </section>
 
-                        <span onclick="togglePassword('passwordActual', this)">
-                            👁️
-                        </span>
-                    </div>
+                    <section class="perfil-card">
+                        <h3>Seguridad</h3>
+                        <p>Cambiar contrase&ntilde;a</p>
 
-                    <div class="password-box">
-                        <input type="password" id="passwordNueva" placeholder="Nueva contraseña">
+                        <div class="password-box">
+                            <input type="password" id="passwordActual" placeholder="Contraseña actual">
 
-                        <span onclick="togglePassword('passwordNueva', this)">
-                            👁️
-                        </span>
-                    </div>
+                            <span onclick="togglePassword('passwordActual', this)">
+                                👁️
+                            </span>
+                        </div>
 
-                    <button onclick="cambiarPassword()">
-                        Guardar contraseña
-                    </button>
+                        <div class="password-box">
+                            <input type="password" id="passwordNueva" placeholder="Nueva contraseña">
+
+                            <span onclick="togglePassword('passwordNueva', this)">
+                                👁️
+                            </span>
+                        </div>
+
+                        <button onclick="cambiarPassword()">
+                            Guardar contraseña
+                        </button>
+                    </section>
 
                 </div>
 
