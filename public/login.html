@@ -14,7 +14,8 @@
         onkeydown="enviarFormularioConEnter(event)">
         <h2>Iniciar sesión</h2>
 
-        <select id="usuarioSelect" onchange="seleccionarUsuarioLogin()">
+        <select id="usuarioSelect" data-select-personalizado aria-label="Seleccionar asesora"
+            onchange="seleccionarUsuarioLogin()">
             <option value="">Seleccionar asesora</option>
         </select>
         <input type="text" id="usuario" placeholder="Usuario manual" autocomplete="username" style="display:none;">
@@ -44,6 +45,7 @@
         </div>
     </div>
 
+    <script src="select-personalizado.js"></script>
     <script>
         function mostrarLoader() {
             const loader = document.getElementById("loaderGlobal");
@@ -227,6 +229,7 @@
             }
         }
 
+        prepararSelectoresPersonalizados();
         cargarUsuariosLogin();
     </script>
 
