@@ -7,6 +7,7 @@ const path = require("path");
 const { spawn } = require("child_process");
 const jwt = require("jsonwebtoken");
 const sqlite3 = require("sqlite3").verbose();
+const ExcelJS = require("exceljs");
 
 const repoRoot = path.resolve(__dirname, "..");
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "asis-primer-contacto-"));
@@ -96,6 +97,17 @@ async function request(pathname, authToken, options = {}) {
     const body = await response.json().catch(() => null);
 
     return { status: response.status, body };
+}
+
+async function requestExcel(pathname, authToken) {
+    const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
+        headers: { Authorization: `Bearer ${authToken}` }
+    });
+    const buffer = await response.arrayBuffer();
+    const workbook = new ExcelJS.Workbook();
+
+    if (response.ok) await workbook.xlsx.load(buffer);
+    return { status: response.status, workbook };
 }
 
 async function waitForServer() {
@@ -512,36 +524,61 @@ async function main() {
         String(clienteExistente)
     );
 
-    const quince = Array.from(
-        { length: 15 },
-        (_, indice) => `11 6000-${String(1000 + indice).slice(-4)}`
+    const numerosLote = (cantidad, bloque) => Array.from(
+        { length: cantidad },
+        (_, indice) => `11 ${bloque}-${String(indice + 1).padStart(4, "0")}`
     );
-    const previewQuince = await request("/primer-contacto/analizar-multiple", sellerA, {
-        method: "POST",
-        body: JSON.stringify({ numeros: quince })
-    });
-    assert.strictEqual(previewQuince.status, 200);
-    assert.strictEqual(previewQuince.body.resultados.length, 15);
+    const cantidadesPermitidas = [1, 10, 15, 29, 30];
 
-    const confirmarQuince = await request(
+    for (const [indice, cantidad] of cantidadesPermitidas.entries()) {
+        const numeros = numerosLote(cantidad, String(6100 + indice * 100));
+        const preview = await request("/primer-contacto/analizar-multiple", sellerA, {
+            method: "POST",
+            body: JSON.stringify({ numeros })
+        });
+        assert.strictEqual(preview.status, 200);
+        assert.strictEqual(preview.body.limite, 30);
+        assert.strictEqual(preview.body.resultados.length, cantidad);
+    }
+
+    const treinta = numerosLote(30, "6700");
+    const confirmarTreinta = await request(
         "/primer-contacto/confirmar-multiple",
         sellerA,
         {
             method: "POST",
             body: JSON.stringify({
-                clave_operacion: "lote-exacto-quince-0001",
-                items: quince.map(telefono => ({ telefono }))
+                clave_operacion: "lote-exacto-treinta-0001",
+                items: treinta.map(telefono => ({ telefono }))
             })
         }
     );
-    assert.strictEqual(confirmarQuince.status, 200);
-    assert.strictEqual(confirmarQuince.body.creadas, 15);
+    assert.strictEqual(confirmarTreinta.status, 200);
+    assert.strictEqual(confirmarTreinta.body.creadas, 30);
 
-    const previewDieciseis = await request("/primer-contacto/analizar-multiple", sellerA, {
+    const treintaUno = numerosLote(31, "6800");
+    const previewTreintaUno = await request("/primer-contacto/analizar-multiple", sellerA, {
         method: "POST",
-        body: JSON.stringify({ numeros: [...quince, "11 7000-0001"] })
+        body: JSON.stringify({ numeros: treintaUno })
     });
-    assert.strictEqual(previewDieciseis.status, 400);
+    assert.strictEqual(previewTreintaUno.status, 400);
+    assert.strictEqual(
+        previewTreintaUno.body.error,
+        "Podés cargar un máximo de 30 números por vez."
+    );
+
+    const confirmarTreintaUno = await request(
+        "/primer-contacto/confirmar-multiple",
+        sellerA,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                clave_operacion: "lote-rechazado-treinta-uno-0001",
+                items: treintaUno.map(telefono => ({ telefono }))
+            })
+        }
+    );
+    assert.strictEqual(confirmarTreintaUno.status, 400);
 
     const previewRepetido = await request("/primer-contacto/analizar-multiple", sellerA, {
         method: "POST",
@@ -598,6 +635,89 @@ async function main() {
     const listaAdmin = await request("/primer-contacto", admin);
     assert.ok(listaAdmin.body.some(gestion => gestion.asesora === "vendedora_a"));
     assert.ok(listaAdmin.body.some(gestion => gestion.asesora === "vendedora_b"));
+    const listaAdminB = await request(
+        "/primer-contacto?asesora=vendedora_b",
+        admin
+    );
+    assert.ok(listaAdminB.body.length >= 1);
+    assert.ok(listaAdminB.body.every(gestion => gestion.asesora === "vendedora_b"));
+    const listaVendedoraForzada = await request(
+        "/primer-contacto?asesora=vendedora_b",
+        sellerA
+    );
+    assert.ok(
+        listaVendedoraForzada.body.every(gestion => gestion.asesora === "vendedora_a")
+    );
+
+    const dbExportacion = openDatabase();
+    try {
+        await run(
+            dbExportacion,
+            "UPDATE primer_contacto_gestiones SET fecha = ? WHERE id = ?",
+            ["2026-08-10 14:30:00", nuevoA.body.gestion_id]
+        );
+        await run(
+            dbExportacion,
+            "UPDATE primer_contacto_gestiones SET fecha = ? WHERE id = ?",
+            ["2026-08-15 09:45:00", repetidoConfirmado.body.gestion_id]
+        );
+        await run(
+            dbExportacion,
+            "UPDATE primer_contacto_gestiones SET fecha = ? WHERE id = ?",
+            ["2026-08-16 11:20:00", mismoTelefonoB.body.gestion_id]
+        );
+    } finally {
+        await close(dbExportacion);
+    }
+
+    const excelVendedora = await requestExcel(
+        "/primer-contacto/exportar-excel?asesora=vendedora_b",
+        sellerA
+    );
+    assert.strictEqual(excelVendedora.status, 200);
+    const filasVendedora = excelVendedora.workbook
+        .getWorksheet("Primer contacto")
+        .getRows(2, 1000)
+        .filter(row => row?.actualCellCount > 0);
+    assert.ok(filasVendedora.length >= 2);
+    assert.ok(filasVendedora.every(row => row.getCell(3).value === "vendedora_a"));
+    assert.strictEqual(
+        filasVendedora.filter(row => row.getCell(6).value === "1155550001").length,
+        2
+    );
+
+    const excelAdmin = await requestExcel("/primer-contacto/exportar-excel", admin);
+    assert.strictEqual(excelAdmin.status, 200);
+    const filasAdmin = excelAdmin.workbook
+        .getWorksheet("Primer contacto")
+        .getRows(2, 1000)
+        .filter(row => row?.actualCellCount > 0);
+    assert.ok(filasAdmin.some(row => row.getCell(3).value === "vendedora_a"));
+    assert.ok(filasAdmin.some(row => row.getCell(3).value === "vendedora_b"));
+
+    const excelAdminB = await requestExcel(
+        "/primer-contacto/exportar-excel?asesora=vendedora_b",
+        admin
+    );
+    assert.strictEqual(excelAdminB.status, 200);
+    const filasAdminB = excelAdminB.workbook
+        .getWorksheet("Primer contacto")
+        .getRows(2, 1000)
+        .filter(row => row?.actualCellCount > 0);
+    assert.ok(filasAdminB.length >= 1);
+    assert.ok(filasAdminB.every(row => row.getCell(3).value === "vendedora_b"));
+
+    const excelFecha = await requestExcel(
+        "/primer-contacto/exportar-excel?fecha_desde=2026-08-16&fecha_hasta=2026-08-16",
+        admin
+    );
+    assert.strictEqual(excelFecha.status, 200);
+    const filasFecha = excelFecha.workbook
+        .getWorksheet("Primer contacto")
+        .getRows(2, 1000)
+        .filter(row => row?.actualCellCount > 0);
+    assert.strictEqual(filasFecha.length, 1);
+    assert.strictEqual(filasFecha[0].getCell(3).value, "vendedora_b");
 
     const modificarAjeno = await request(
         `/primer-contacto/gestiones/${nuevoA.body.gestion_id}`,
@@ -703,14 +823,19 @@ async function main() {
             "evitar falsos duplicados con 15 dentro de diez dígitos",
             "vincular la gestión al cliente existente al guardar",
             "cotización sin cliente no crea un cliente automáticamente",
-            "carga múltiple de exactamente 15 números",
-            "rechazo total de 16 números",
+            "carga múltiple acepta 1, 10, 15, 29 y 30 números",
+            "confirmación registra exactamente 30 números",
+            "rechazo total de 31 números en análisis y confirmación",
             "repetidos dentro de la tanda",
             "número inválido",
             "confirmación registra sólo seleccionados",
             "doble confirmación múltiple idempotente",
             "vendedora lista sólo sus gestiones",
             "admin consulta todas las gestiones",
+            "vendedora exporta solo sus propias gestiones",
+            "admin exporta todas las gestiones o filtra por asesora",
+            "exportacion respeta el filtro de fecha",
+            "cada gestion del mismo telefono ocupa una fila del Excel",
             "no existe edición de gestión ajena",
             "cotización ajena continúa protegida",
             "cotización propia sobre cliente compartido"

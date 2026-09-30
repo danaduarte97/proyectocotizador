@@ -262,6 +262,15 @@ CREATE INDEX IF NOT EXISTS idx_clientes_dni_normalizado
 CREATE INDEX IF NOT EXISTS idx_clientes_telefono_normalizado
     ON clientes (telefono_normalizado);
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_clientes_dni_normalizado
+    ON clientes (dni_normalizado)
+    WHERE dni_normalizado IS NOT NULL AND TRIM(dni_normalizado) <> '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_clientes_telefono_normalizado
+    ON clientes (telefono_normalizado)
+    WHERE telefono_normalizado IS NOT NULL
+      AND TRIM(telefono_normalizado) <> '';
+
 CREATE INDEX IF NOT EXISTS idx_clientes_nombre_lower
     ON clientes (LOWER(nombre));
 

@@ -24,6 +24,25 @@ function esAdmin() {
     return payload && payload.rol === "admin";
 }
 
+function puedeEditarCotizacion(cotizacion) {
+    const payload = obtenerPayload();
+    return Boolean(
+        payload
+        && (payload.rol === "admin" || cotizacion.vendedora === payload.usuario)
+    );
+}
+
+function enviarFormularioConEnter(event) {
+    if (
+        event.key !== "Enter"
+        || event.isComposing
+        || event.target.matches("textarea, button, select")
+    ) return;
+
+    event.preventDefault();
+    event.currentTarget.requestSubmit();
+}
+
 // HEADERS CON TOKEN (Bearer)
 function authHeaders(extra = {}) {
     const token = localStorage.getItem("token");
@@ -110,6 +129,11 @@ async function cargarUsuarios() {
 
     const usuarios = await res.json();
     usuariosCargados = usuarios;
+    actualizarVistasPrimerContacto(
+        usuarios
+            .filter(user => user.rol === "vendedora")
+            .map(user => ({ asesora: user.usuario }))
+    );
 
     const contenedor = document.getElementById("listaUsuarios");
     contenedor.innerHTML = "";
@@ -641,7 +665,7 @@ function renderTarjetaCotizacion(c, opciones = {}) {
     const dniVisible = mostrarDniCotizacion(c.dni);
     const idVisible = formatearCotizacionId(c.id);
     const opcionesPlan = obtenerOpcionesCotizacion(c);
-    const puedeGestionarRecursos = c.vendedora === obtenerPayload().usuario || esAdmin();
+    const puedeGestionarRecursos = puedeEditarCotizacion(c);
     const fechaSeguimientoResumen = fechaSeguimiento
         ? `<p><b>Seguimiento:</b> ${fechaSeguimiento}</p>`
         : "";
@@ -757,6 +781,45 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                     </div>
                 </section>
 
+                ${puedeGestionarRecursos ? `
+                <form class="cotizacion-perfil-edicion" data-edicion-perfil="${c.id}" hidden
+                    onsubmit="guardarPerfilCotizacion(${c.id}, event)"
+                    onkeydown="enviarFormularioConEnter(event)">
+                    <div class="cotizacion-perfil-edicion-head">
+                        <div>
+                            <h4>Editar datos del perfil</h4>
+                            <p>Debe quedar informado al menos un DNI o un teléfono.</p>
+                        </div>
+                    </div>
+                    <div class="cotizacion-perfil-grid">
+                        <label>
+                            Nombre
+                            <input type="text" maxlength="120" data-perfil-campo="nombre"
+                                value="${escaparHtml(c.nombre || "")}">
+                        </label>
+                        <label>
+                            DNI
+                            <input type="text" inputmode="numeric" data-perfil-campo="dni"
+                                value="${escaparHtml(c.dni || "")}">
+                        </label>
+                        <label>
+                            Teléfono
+                            <input type="tel" maxlength="50" data-perfil-campo="celular"
+                                value="${escaparHtml(c.celular || "")}">
+                        </label>
+                    </div>
+                    <div class="cotizacion-perfil-acciones">
+                        <button type="button" class="secondary-btn"
+                            onclick="alternarEdicionPerfilCotizacion(${c.id}, false)">
+                            Cancelar
+                        </button>
+                        <button type="submit">
+                            Guardar datos
+                        </button>
+                    </div>
+                </form>
+                ` : ""}
+
                 <div class="cotizacion-opciones">
                     ${opcionesPlan.map(renderDetalleOpcion).join("")}
                 </div>
@@ -840,6 +903,9 @@ function renderTarjetaCotizacion(c, opciones = {}) {
 
                 <div class="cotizacion-acciones">
                     ${puedeGestionarRecursos ? `
+                        <button type="button" onclick="alternarEdicionPerfilCotizacion(${c.id}, true)">
+                            Editar datos
+                        </button>
                         <button
                             onclick="abrirModal(${c.id}, \`${comentarioModal}\`)"
                         >
@@ -865,6 +931,101 @@ function renderTarjetaCotizacion(c, opciones = {}) {
         </div>
     `;
 }
+
+function obtenerFormularioPerfilCotizacion(cotizacionId) {
+    return document.querySelector(
+        `#cotizacionDetalleModalContenido [data-edicion-perfil="${cotizacionId}"]`
+    );
+}
+
+function alternarEdicionPerfilCotizacion(cotizacionId, mostrar) {
+    const formulario = obtenerFormularioPerfilCotizacion(cotizacionId);
+    if (!formulario) return;
+
+    formulario.hidden = !mostrar;
+    if (mostrar) {
+        formulario.querySelector("input")?.focus();
+        formulario.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+}
+
+function validarPerfilCotizacionFormulario(dni, celular) {
+    const dniNormalizado = String(dni || "").replace(/\D/g, "");
+    const telefono = analizarTelefonoArgentina(celular);
+
+    if (!dniNormalizado && !String(celular || "").trim()) {
+        return "Ingresá al menos un DNI o un teléfono";
+    }
+    if (dni && !/^\d{7,8}$/.test(dniNormalizado)) {
+        return "Ingresá un DNI válido de 7 u 8 dígitos";
+    }
+    if (celular && !telefono.validoWhatsapp) {
+        return "Ingresá un teléfono argentino válido";
+    }
+
+    return "";
+}
+
+async function guardarPerfilCotizacion(cotizacionId, event = null) {
+    event?.preventDefault?.();
+    const formulario = obtenerFormularioPerfilCotizacion(cotizacionId);
+    if (!formulario) return;
+
+    if (formulario.dataset.enviando === "true") return;
+
+    const boton = event?.submitter
+        || formulario.querySelector('button[type="submit"]');
+
+    const nombre = formulario.querySelector('[data-perfil-campo="nombre"]')?.value.trim() || "";
+    const dni = formulario.querySelector('[data-perfil-campo="dni"]')?.value.trim() || "";
+    const celular = formulario.querySelector('[data-perfil-campo="celular"]')?.value.trim() || "";
+    const errorValidacion = validarPerfilCotizacionFormulario(dni, celular);
+
+    if (errorValidacion) {
+        mostrarToast(errorValidacion, "error");
+        return;
+    }
+
+    formulario.dataset.enviando = "true";
+    if (boton) boton.disabled = true;
+    mostrarLoader();
+
+    try {
+        const res = await fetch(`/cotizaciones/${cotizacionId}/perfil`, {
+            method: "PUT",
+            headers: authHeaders(),
+            body: JSON.stringify({ nombre, dni, celular })
+        });
+        const datos = await res.json().catch(() => ({}));
+
+        if (res.status === 401) {
+            await manejarError(res);
+            return;
+        }
+        if (res.status === 403) {
+            mostrarToast(datos.error || "No tenés permiso para editar esta cotización", "error");
+            return;
+        }
+        if (!res.ok) {
+            mostrarToast(datos.error || "No se pudieron actualizar los datos", "error");
+            return;
+        }
+
+        mostrarToast("Datos actualizados", "success");
+        cerrarDetalleCotizacion();
+        await Promise.all([
+            cargarMisCotizaciones(),
+            cargarInicioCrm(true)
+        ]);
+    } catch (error) {
+        mostrarToast("No se pudieron actualizar los datos", "error");
+    } finally {
+        ocultarLoader();
+        delete formulario.dataset.enviando;
+        if (boton) boton.disabled = false;
+    }
+}
+
 let busquedaCotizacionActual = 0;
 let busquedaInicioActual = 0;
 const ETAPAS_PIPELINE = [
@@ -3775,9 +3936,20 @@ async function agregar() {
     const adjuntoInput = document.getElementById("adjuntoCotizacion");
     const adjuntos = adjuntoInput ? [...adjuntoInput.files] : [];
     const dniCotizacionValor = obtenerDniCotizacionValor();
-    const celularValor = normalizarTelefono(
-        document.getElementById("celular").value
+    const celularIngresado = document.getElementById("celular").value.trim();
+    const errorIdentidad = validarPerfilCotizacionFormulario(
+        dniCotizacionValor,
+        celularIngresado
     );
+
+    if (errorIdentidad) {
+        mostrarToast(errorIdentidad, "error");
+        return;
+    }
+
+    const celularValor = celularIngresado
+        ? normalizarTelefono(celularIngresado)
+        : "";
     const clienteId = document.getElementById("clienteIdCotizacion")?.value || "";
     const terminoBusqueda =
         document.getElementById("terminoBusquedaCotizacion")?.value || "";
@@ -4186,7 +4358,12 @@ let primerContactoAnalisisIndividual = null;
 let primerContactoClaveIndividual = null;
 let primerContactoPreviewMultiple = [];
 let primerContactoClaveMultiple = null;
+let primerContactoBusquedaEnCurso = false;
+let primerContactoIndividualEnCurso = false;
+let primerContactoAnalisisMultipleEnCurso = false;
+let primerContactoConfirmacionMultipleEnCurso = false;
 const primerContactoDatosPorTelefono = new Map();
+const primerContactoAsesoras = new Set();
 
 function claveOperacionPrimerContacto(prefijo) {
     const uuid = globalThis.crypto?.randomUUID?.()
@@ -4318,9 +4495,13 @@ function guardarDatosPrimerContacto(resultado) {
     primerContactoDatosPorTelefono.set(resultado.telefono_normalizado, resultado);
 }
 
-async function buscarPrimerContacto() {
+async function buscarPrimerContacto(event = null) {
+    event?.preventDefault?.();
+    if (primerContactoBusquedaEnCurso) return;
+
     const input = document.getElementById("primerContactoBuscarTelefono");
     const contenedor = document.getElementById("primerContactoBusquedaResultado");
+    const boton = document.getElementById("primerContactoBuscarBoton");
     const telefono = input?.value.trim();
 
     if (!telefono) {
@@ -4329,6 +4510,8 @@ async function buscarPrimerContacto() {
         return;
     }
 
+    primerContactoBusquedaEnCurso = true;
+    if (boton) boton.disabled = true;
     mostrarLoader();
     try {
         const res = await fetch(
@@ -4350,6 +4533,8 @@ async function buscarPrimerContacto() {
         mostrarToast("No se pudo buscar el teléfono", "error");
     } finally {
         ocultarLoader();
+        primerContactoBusquedaEnCurso = false;
+        if (boton) boton.disabled = false;
     }
 }
 
@@ -4440,7 +4625,12 @@ async function cargarPrimerosContactos() {
         params.set("fecha_desde", fecha);
         params.set("fecha_hasta", fecha);
     }
-    if (esAdmin()) params.set("vista", vista);
+    if (esAdmin()) {
+        if (vista === "mis") params.set("vista", "mis");
+        if (vista.startsWith("asesora:")) {
+            params.set("asesora", vista.slice("asesora:".length));
+        }
+    }
 
     listado.innerHTML = "<p>Cargando contactos...</p>";
     try {
@@ -4455,6 +4645,8 @@ async function cargarPrimerosContactos() {
             return;
         }
 
+        actualizarVistasPrimerContacto(datos);
+
         const grupos = agruparGestionesPrimerContacto(datos);
         document.getElementById("primerContactoContador").textContent =
             `${datos.length} gestiones en ${grupos.length} teléfonos`;
@@ -4466,6 +4658,90 @@ async function cargarPrimerosContactos() {
     }
 }
 
+function actualizarVistasPrimerContacto(gestiones = []) {
+    const select = document.getElementById("primerContactoVista");
+    if (!select) return;
+
+    if (!esAdmin()) {
+        select.innerHTML = '<option value="mis">Mis contactos</option>';
+        return;
+    }
+
+    gestiones.forEach(gestion => {
+        if (gestion.asesora) primerContactoAsesoras.add(gestion.asesora);
+    });
+    const seleccion = select.value || "todos";
+    const opcionesAsesoras = [...primerContactoAsesoras]
+        .sort((a, b) => a.localeCompare(b, "es"))
+        .map(asesora => `
+            <option value="asesora:${escaparHtml(asesora)}">
+                ${escaparHtml(asesora)}
+            </option>
+        `).join("");
+
+    select.innerHTML = `
+        <option value="todos">Todos los contactos</option>
+        <option value="mis">Mis contactos</option>
+        ${opcionesAsesoras}
+    `;
+    select.value = [...select.options].some(option => option.value === seleccion)
+        ? seleccion
+        : "todos";
+}
+
+function filtrosPrimerContactoQuery() {
+    const params = new URLSearchParams();
+    const fecha = document.getElementById("primerContactoFecha")?.value || "";
+    const vista = document.getElementById("primerContactoVista")?.value || "mis";
+
+    if (fecha) {
+        params.set("fecha_desde", fecha);
+        params.set("fecha_hasta", fecha);
+    }
+    if (esAdmin()) {
+        if (vista === "mis") params.set("vista", "mis");
+        if (vista.startsWith("asesora:")) {
+            params.set("asesora", vista.slice("asesora:".length));
+        }
+    }
+
+    const query = params.toString();
+    return query ? `?${query}` : "";
+}
+
+async function descargarExcelPrimerContacto() {
+    mostrarLoader();
+
+    try {
+        const res = await fetch(
+            `/primer-contacto/exportar-excel${filtrosPrimerContactoQuery()}`,
+            { headers: authOnlyHeaders() }
+        );
+
+        if (await manejarError(res)) return;
+        if (!res.ok) {
+            mostrarToast("No se pudo generar el Excel", "error");
+            return;
+        }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        const fecha = new Date().toISOString().slice(0, 10);
+
+        link.href = url;
+        link.download = `primer-contacto-${fecha}.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        mostrarToast("No se pudo descargar el Excel", "error");
+    } finally {
+        ocultarLoader();
+    }
+}
+
 function limpiarFiltrosPrimerContacto() {
     const telefono = document.getElementById("primerContactoBuscarTelefono");
     const fecha = document.getElementById("primerContactoFecha");
@@ -4474,7 +4750,7 @@ function limpiarFiltrosPrimerContacto() {
 
     if (telefono) telefono.value = "";
     if (fecha) fecha.value = "";
-    if (vista) vista.value = "todos";
+    if (vista) vista.value = esAdmin() ? "todos" : "mis";
     if (resultado) {
         resultado.hidden = true;
         resultado.innerHTML = "";
@@ -4516,6 +4792,8 @@ function cerrarNuevoPrimerContacto() {
 
 async function procesarNuevoPrimerContacto(event) {
     event.preventDefault();
+    if (primerContactoIndividualEnCurso) return;
+
     const telefono = document.getElementById("primerContactoTelefono").value.trim();
     const normalizado = normalizarTelefono(telefono);
     const boton = document.getElementById("primerContactoConfirmarIndividual");
@@ -4525,6 +4803,7 @@ async function procesarNuevoPrimerContacto(event) {
         !primerContactoAnalisisIndividual
         || primerContactoAnalisisIndividual.telefono_normalizado !== normalizado
     ) {
+        primerContactoIndividualEnCurso = true;
         boton.disabled = true;
         try {
             const res = await fetch(
@@ -4551,10 +4830,12 @@ async function procesarNuevoPrimerContacto(event) {
                     : "Registrar contacto";
         } finally {
             boton.disabled = false;
+            primerContactoIndividualEnCurso = false;
         }
         return;
     }
 
+    primerContactoIndividualEnCurso = true;
     boton.disabled = true;
     try {
         const res = await fetch("/primer-contacto", {
@@ -4587,6 +4868,7 @@ async function procesarNuevoPrimerContacto(event) {
         mostrarToast("No se pudo registrar el contacto", "error");
     } finally {
         boton.disabled = false;
+        primerContactoIndividualEnCurso = false;
     }
 }
 
@@ -4646,8 +4928,8 @@ async function analizarCargaMultiplePrimerContacto() {
     const preview = document.getElementById("primerContactoPreviewMultiple");
     const boton = document.getElementById("primerContactoAnalizarMultiple");
 
-    if (lineas.length > 15) {
-        mostrarToast("Podés cargar un máximo de 15 números por vez.", "error");
+    if (lineas.length > 30) {
+        mostrarToast("Podés cargar un máximo de 30 números por vez.", "error");
         return;
     }
     if (!lineas.length) {
@@ -4655,6 +4937,8 @@ async function analizarCargaMultiplePrimerContacto() {
         return;
     }
 
+    if (primerContactoAnalisisMultipleEnCurso) return;
+    primerContactoAnalisisMultipleEnCurso = true;
     boton.disabled = true;
     try {
         const res = await fetch("/primer-contacto/analizar-multiple", {
@@ -4681,6 +4965,7 @@ async function analizarCargaMultiplePrimerContacto() {
         mostrarToast("No se pudieron analizar los números", "error");
     } finally {
         boton.disabled = false;
+        primerContactoAnalisisMultipleEnCurso = false;
     }
 }
 
@@ -4695,6 +4980,8 @@ async function confirmarCargaMultiplePrimerContacto() {
         return;
     }
 
+    if (primerContactoConfirmacionMultipleEnCurso) return;
+    primerContactoConfirmacionMultipleEnCurso = true;
     boton.disabled = true;
     try {
         const res = await fetch("/primer-contacto/confirmar-multiple", {
@@ -4723,6 +5010,7 @@ async function confirmarCargaMultiplePrimerContacto() {
         mostrarToast("No se pudieron registrar los contactos", "error");
     } finally {
         boton.disabled = false;
+        primerContactoConfirmacionMultipleEnCurso = false;
     }
 }
 
@@ -4764,7 +5052,7 @@ window.onload = function () {
         "primerContactoVistaGrupo"
     );
     if (vistaPrimerContacto) {
-        vistaPrimerContacto.hidden = !esAdmin();
+        actualizarVistasPrimerContacto();
     }
     const tituloPrimerContacto = document.getElementById(
         "primerContactoListadoTitulo"

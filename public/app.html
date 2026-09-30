@@ -372,36 +372,40 @@
                             <button type="button" class="secondary-btn" onclick="abrirCargaMultiplePrimerContacto()">
                                 Carga m&uacute;ltiple
                             </button>
+                            <button type="button" class="secondary-btn" onclick="descargarExcelPrimerContacto()">
+                                Exportar Excel
+                            </button>
                         </div>
                     </header>
 
                     <div class="primer-contacto-toolbar">
-                        <label class="primer-contacto-search">
+                        <form class="primer-contacto-search" onsubmit="buscarPrimerContacto(event)"
+                            onkeydown="enviarFormularioConEnter(event)">
                             <span>Buscar tel&eacute;fono</span>
                             <div>
                                 <input type="search" id="primerContactoBuscarTelefono"
-                                    placeholder="11 1234-5678"
-                                    onkeydown="if (event.key === 'Enter') buscarPrimerContacto()">
-                                <button type="button" onclick="buscarPrimerContacto()">Buscar</button>
+                                    placeholder="11 1234-5678">
+                                <button type="submit" id="primerContactoBuscarBoton">Buscar</button>
                             </div>
-                        </label>
+                        </form>
 
                         <label>
                             <span>Fecha</span>
                             <input type="date" id="primerContactoFecha" onchange="cargarPrimerosContactos()">
                         </label>
 
-                        <label id="primerContactoVistaGrupo" hidden>
+                        <div id="primerContactoVistaGrupo" class="primer-contacto-vista">
                             <span>Vista</span>
-                            <select id="primerContactoVista" onchange="cargarPrimerosContactos()">
-                                <option value="todos">Todos los contactos</option>
-                                <option value="mis">Mis contactos</option>
-                            </select>
-                        </label>
-
-                        <button type="button" class="secondary-btn" onclick="limpiarFiltrosPrimerContacto()">
-                            Limpiar
-                        </button>
+                            <div>
+                                <select id="primerContactoVista" onchange="cargarPrimerosContactos()"
+                                    aria-label="Vista de contactos">
+                                    <option value="mis">Mis contactos</option>
+                                </select>
+                                <button type="button" class="secondary-btn" onclick="limpiarFiltrosPrimerContacto()">
+                                    Limpiar
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <div id="primerContactoBusquedaResultado" class="primer-contacto-busqueda" hidden></div>
@@ -444,6 +448,9 @@
                     <div class="cotizador-form-grid">
                         <div class="form-block form-block-full">
                             <h4>Datos del cliente</h4>
+                            <p class="form-help-identidad">
+                                Inform&aacute; DNI, tel&eacute;fono o ambos. Al menos uno es obligatorio.
+                            </p>
 
                             <input type="hidden" id="clienteIdCotizacion">
                             <input type="hidden" id="terminoBusquedaCotizacion">
@@ -934,7 +941,8 @@
                 <button type="button" aria-label="Cerrar" onclick="cerrarNuevoPrimerContacto()">&times;</button>
             </header>
 
-            <form id="primerContactoForm" onsubmit="procesarNuevoPrimerContacto(event)">
+            <form id="primerContactoForm" onsubmit="procesarNuevoPrimerContacto(event)"
+                onkeydown="enviarFormularioConEnter(event)">
                 <label>
                     Tel&eacute;fono <strong aria-hidden="true">*</strong>
                     <input type="tel" id="primerContactoTelefono" required maxlength="50"
@@ -978,7 +986,7 @@
 
             <div class="primer-contacto-multiple-body">
                 <label>
-                    Peg&aacute; hasta 15 n&uacute;meros, uno por l&iacute;nea
+                    Peg&aacute; hasta 30 n&uacute;meros, uno por l&iacute;nea
                     <textarea id="primerContactoNumerosMultiples" rows="8"
                         placeholder="11 1234-5678&#10;11 2345-6789"></textarea>
                 </label>

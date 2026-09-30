@@ -10,7 +10,8 @@
 
 <body>
 
-    <div class="container">
+    <form class="container" id="loginForm" onsubmit="login(event)"
+        onkeydown="enviarFormularioConEnter(event)">
         <h2>Iniciar sesión</h2>
 
         <select id="usuarioSelect" onchange="seleccionarUsuarioLogin()">
@@ -27,9 +28,9 @@
 
         </div>
 
-        <button onclick="login()">Ingresar</button>
+        <button type="submit" id="loginBoton">Ingresar</button>
         <p id="loginMensaje" class="login-mensaje" role="status"></p>
-    </div>
+    </form>
 
     <div id="loaderGlobal" class="loader-overlay" style="display:none;">
         <div class="loader">
@@ -62,6 +63,17 @@
 
         function mostrarMensajeLogin(mensaje) {
             document.getElementById("loginMensaje").textContent = mensaje;
+        }
+
+        function enviarFormularioConEnter(event) {
+            if (
+                event.key !== "Enter"
+                || event.isComposing
+                || event.target.matches("textarea, button, select")
+            ) return;
+
+            event.preventDefault();
+            event.currentTarget.requestSubmit();
         }
 
         async function cargarUsuariosLogin() {
@@ -140,9 +152,15 @@
             inputUsuario.style.display = "none";
         }
 
-        async function login() {
+        let loginEnCurso = false;
+
+        async function login(event = null) {
+            event?.preventDefault?.();
+            if (loginEnCurso) return;
+
             const usuario = document.getElementById("usuario").value.trim();
             const password = document.getElementById("password").value;
+            const boton = document.getElementById("loginBoton");
 
             mostrarMensajeLogin("");
 
@@ -151,7 +169,11 @@
                 return;
             }
 
+            loginEnCurso = true;
+            boton.disabled = true;
             mostrarLoader();
+
+            let autenticado = false;
 
             try {
                 const res = await fetch("/login", {
@@ -171,6 +193,7 @@
                 }
 
                 if (res.ok) {
+                    autenticado = true;
                     localStorage.setItem("token", data.token);
                     window.location.href = "/app.html";
                 } else {
@@ -179,7 +202,11 @@
             } catch {
                 mostrarMensajeLogin("No se pudo iniciar sesión");
             } finally {
-                ocultarLoader();
+                if (!autenticado) {
+                    loginEnCurso = false;
+                    boton.disabled = false;
+                    ocultarLoader();
+                }
             }
         }
 
