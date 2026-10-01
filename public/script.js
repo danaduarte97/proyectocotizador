@@ -513,6 +513,7 @@ function totalOpcionCotizacion(opcion) {
 
 function renderTablaPdfOpcion(opcion, cotizacion) {
     const bonificacionComercial = Number(opcion.bonificacion || 0);
+    const bonificacionAportes = Number(opcion.bonificacion_aportes || 0);
 
     return `
         <section class="pdf-opcion" data-pdf-opcion="${opcion.numero_opcion}">
@@ -557,11 +558,13 @@ function renderTablaPdfOpcion(opcion, cotizacion) {
                             <td>- $ ${bonificacionComercial.toLocaleString("es-AR")}</td>
                         </tr>
                     ` : ""}
-                    <tr>
-                        <td>Bonificaci&oacute;n por aportes</td>
-                        <td></td>
-                        <td>- $ ${Number(opcion.bonificacion_aportes || 0).toLocaleString("es-AR")}</td>
-                    </tr>
+                    ${bonificacionAportes > 0 ? `
+                        <tr>
+                            <td>Bonificaci&oacute;n de aportes aplicada</td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                    ` : ""}
                 </tbody>
             </table>
 
@@ -795,8 +798,8 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                     onkeydown="enviarFormularioConEnter(event)">
                     <div class="cotizacion-perfil-edicion-head">
                         <div>
-                            <h4>Editar datos del perfil</h4>
-                            <p>Debe quedar informado al menos un DNI o un teléfono.</p>
+                            <h4>Editar datos</h4>
+                            <p>El teléfono es obligatorio. El DNI es opcional.</p>
                         </div>
                     </div>
                     <div class="cotizacion-perfil-grid">
@@ -815,15 +818,37 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                             <input type="tel" maxlength="50" data-perfil-campo="celular"
                                 value="${escaparHtml(c.celular || "")}">
                         </label>
+                        <label>
+                            Congelamiento
+                            <input type="text" maxlength="120" data-perfil-campo="congelamiento"
+                                value="${escaparHtml(c.congelamiento || "")}">
+                        </label>
+                        <label>
+                            Válido hasta
+                            <input type="date" data-perfil-campo="vigencia"
+                                value="${escaparHtml(String(c.vigencia || "").slice(0, 10))}">
+                        </label>
                     </div>
+                    ${opcionesPlan.map((opcion, index) => `
+                        <fieldset data-perfil-opcion="${index + 1}">
+                            <legend>Opci&oacute;n ${index + 1}</legend>
+                            <input type="hidden" data-opcion-campo="plan"
+                                value="${escaparHtml(opcion.plan || "")}">
+                            <input type="hidden" data-opcion-campo="tipo_cobertura"
+                                value="${escaparHtml(opcion.tipo_cobertura || "Individual")}">
+                            <div class="cotizacion-perfil-grid">
+                                <label>Subtotal<input type="text" data-opcion-campo="valor" value="${escaparHtml(opcion.valor || "0")}" required></label>
+                                <label>Bonificaci&oacute;n comercial<input type="number" min="0" data-opcion-campo="bonificacion" value="${escaparHtml(opcion.bonificacion || "0")}" required></label>
+                                <label>Bonificaci&oacute;n por aportes<input type="number" min="0" data-opcion-campo="bonificacion_aportes" value="${escaparHtml(opcion.bonificacion_aportes || "0")}" required></label>
+                            </div>
+                        </fieldset>
+                    `).join("")}
                     <div class="cotizacion-perfil-acciones">
                         <button type="button" class="secondary-btn"
                             onclick="alternarEdicionPerfilCotizacion(${c.id}, false)">
                             Cancelar
                         </button>
-                        <button type="submit">
-                            Guardar datos
-                        </button>
+                        <button type="submit">Guardar datos</button>
                     </div>
                 </form>
                 ` : ""}
@@ -932,6 +957,11 @@ function renderTarjetaCotizacion(c, opciones = {}) {
                             Anular cotizacion
                         </button>
                     ` : ""}
+                    ${puedeGestionarRecursos ? `
+                        <button type="button" class="btn-anular" onclick="eliminarCotizacion(${c.id})">
+                            Eliminar cotizaci&oacute;n
+                        </button>
+                    ` : ""}
                 </div>
                 </div>
             </template>
@@ -961,8 +991,8 @@ function validarPerfilCotizacionFormulario(dni, celular) {
     const dniNormalizado = String(dni || "").replace(/\D/g, "");
     const telefono = analizarTelefonoArgentina(celular);
 
-    if (!dniNormalizado && !String(celular || "").trim()) {
-        return "Ingresá al menos un DNI o un teléfono";
+    if (!String(celular || "").trim()) {
+        return "Ingresá un teléfono";
     }
     if (dni && !/^\d{7,8}$/.test(dniNormalizado)) {
         return "Ingresá un DNI válido de 7 u 8 dígitos";
@@ -972,6 +1002,31 @@ function validarPerfilCotizacionFormulario(dni, celular) {
     }
 
     return "";
+}
+
+async function eliminarCotizacion(id) {
+    const confirmado = await mostrarModalConfirmacion({
+        titulo: "¿Eliminar cotización?",
+        texto: "Se eliminará la cotización y sus adjuntos, comentarios e historial. Esta acción no se puede deshacer.",
+        accion: "Eliminar"
+    });
+    if (!confirmado) return;
+    mostrarLoader();
+    try {
+        const res = await fetch(`/cotizaciones/${id}`, { method: "DELETE", headers: authHeaders() });
+        const datos = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            mostrarToast(datos.error || "No se pudo eliminar la cotización", "error");
+            return;
+        }
+        mostrarToast("Cotización eliminada", "success");
+        cerrarDetalleCotizacion({ devolverFoco: false });
+        await refrescarVistaCotizaciones();
+    } catch (error) {
+        mostrarToast("No se pudo eliminar la cotización", "error");
+    } finally {
+        ocultarLoader();
+    }
 }
 
 async function guardarPerfilCotizacion(cotizacionId, event = null) {
@@ -987,6 +1042,15 @@ async function guardarPerfilCotizacion(cotizacionId, event = null) {
     const nombre = formulario.querySelector('[data-perfil-campo="nombre"]')?.value.trim() || "";
     const dni = formulario.querySelector('[data-perfil-campo="dni"]')?.value.trim() || "";
     const celular = formulario.querySelector('[data-perfil-campo="celular"]')?.value.trim() || "";
+    const congelamiento = formulario.querySelector('[data-perfil-campo="congelamiento"]')?.value.trim() || "";
+    const vigencia = formulario.querySelector('[data-perfil-campo="vigencia"]')?.value || "";
+    const opciones = [...formulario.querySelectorAll("[data-perfil-opcion]")].map(grupo => ({
+        plan: grupo.querySelector('[data-opcion-campo="plan"]').value,
+        tipo_cobertura: grupo.querySelector('[data-opcion-campo="tipo_cobertura"]').value,
+        valor: grupo.querySelector('[data-opcion-campo="valor"]').value.trim(),
+        bonificacion: grupo.querySelector('[data-opcion-campo="bonificacion"]').value || "0",
+        bonificacion_aportes: grupo.querySelector('[data-opcion-campo="bonificacion_aportes"]').value || "0"
+    }));
     const errorValidacion = validarPerfilCotizacionFormulario(dni, celular);
 
     if (errorValidacion) {
@@ -1002,7 +1066,7 @@ async function guardarPerfilCotizacion(cotizacionId, event = null) {
         const res = await fetch(`/cotizaciones/${cotizacionId}/perfil`, {
             method: "PUT",
             headers: authHeaders(),
-            body: JSON.stringify({ nombre, dni, celular })
+            body: JSON.stringify({ nombre, dni, celular, congelamiento, vigencia, opciones })
         });
         const datos = await res.json().catch(() => ({}));
 
@@ -1020,11 +1084,8 @@ async function guardarPerfilCotizacion(cotizacionId, event = null) {
         }
 
         mostrarToast("Datos actualizados", "success");
-        cerrarDetalleCotizacion();
-        await Promise.all([
-            cargarMisCotizaciones(),
-            cargarInicioCrm(true)
-        ]);
+        cerrarDetalleCotizacion({ devolverFoco: false });
+        await refrescarVistaCotizaciones();
     } catch (error) {
         mostrarToast("No se pudieron actualizar los datos", "error");
     } finally {
@@ -1032,6 +1093,20 @@ async function guardarPerfilCotizacion(cotizacionId, event = null) {
         delete formulario.dataset.enviando;
         if (boton) boton.disabled = false;
     }
+}
+
+async function refrescarVistaCotizaciones() {
+    const tareas = [cargarInicioCrm(true)];
+    const misCotizaciones = document.getElementById("misCotizaciones");
+    const terminoBusqueda = document.getElementById("dni")?.value.trim();
+
+    if (misCotizaciones && misCotizaciones.style.display !== "none") {
+        tareas.push(cargarMisCotizaciones());
+    } else if (terminoBusqueda) {
+        tareas.push(buscar());
+    }
+
+    await Promise.all(tareas);
 }
 
 let busquedaCotizacionActual = 0;
@@ -3209,7 +3284,7 @@ async function cargarArchivosAnterior(cotizacionId, contenedorId = `archivos-${c
     div.innerHTML = "";
 
     if (archivos.length === 0) {
-        div.innerHTML = '<p class="sin-adjuntos">Sin imágenes adjuntas.</p>';
+        div.innerHTML = '<p class="sin-adjuntos">Sin im&aacute;genes adjuntas</p>';
         return;
     }
 
@@ -3269,7 +3344,7 @@ async function cargarArchivos(cotizacionId, contenedorId = `archivos-${cotizacio
         div.innerHTML = "";
 
         if (archivos.length === 0) {
-            div.innerHTML = '<p class="sin-adjuntos">Sin imÃ¡genes adjuntas.</p>';
+            div.innerHTML = '<p class="sin-adjuntos">Sin im&aacute;genes adjuntas</p>';
             return;
         }
 

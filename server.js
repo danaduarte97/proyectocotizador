@@ -2641,13 +2641,13 @@ function datosIdentidadCotizacionDesdeBody(body = {}) {
     const celularIngresado = String(body.celular || "").trim();
     const celular = celularIngresado ? normalizarTelefono(celularIngresado) : null;
 
-    if (!dniNormalizado && !celular) {
-        throw errorHttp(400, "Ingresá al menos un DNI o un teléfono");
+    if (!celular) {
+        throw errorHttp(400, "Ingresá un teléfono");
     }
     if (dni && !/^\d{7,8}$/.test(dniNormalizado || "")) {
         throw errorHttp(400, "Ingresá un DNI válido de 7 u 8 dígitos");
     }
-    if (celularIngresado && !/^\d{10}$/.test(celular || "")) {
+    if (!/^\d{10}$/.test(celular || "")) {
         throw errorHttp(400, "Ingresá un teléfono argentino válido");
     }
 
@@ -2774,6 +2774,14 @@ async function responderCreacionCotizacion(req, res, clienteIdParam = null) {
         });
     } catch (error) {
         eliminarArchivosLocales(archivos);
+        console.error("[agregar cotizacion] error:", {
+            message: error.message,
+            code: error.code,
+            detail: error.detail,
+            constraint: error.constraint,
+            table: error.table,
+            column: error.column
+        });
         const conflictoUnico = error.code === "23505"
             || String(error.code || "").startsWith("SQLITE_CONSTRAINT");
 
@@ -2794,11 +2802,47 @@ async function editarPerfilCotizacion(req) {
 
     const identidad = datosIdentidadCotizacionDesdeBody(req.body);
     const nombre = textoOpcionalPrimerContacto(req.body.nombre, 120);
+    const congelamientoDefinido = Object.prototype.hasOwnProperty.call(
+        req.body,
+        "congelamiento"
+    );
+    const vigenciaDefinida = Object.prototype.hasOwnProperty.call(req.body, "vigencia");
+    const opcionesDefinidas = Object.prototype.hasOwnProperty.call(req.body, "opciones");
+    const congelamiento = congelamientoDefinido
+        ? String(req.body.congelamiento || "").trim()
+        : undefined;
+    const vigencia = vigenciaDefinida
+        ? String(req.body.vigencia || "").trim() || null
+        : undefined;
+    const opciones = opcionesDefinidas && Array.isArray(req.body.opciones)
+        ? req.body.opciones.slice(0, 2).map((opcion, index) => ({
+            numero_opcion: index + 1,
+            plan: String(opcion.plan || "").trim(),
+            tipo_cobertura: String(opcion.tipo_cobertura || "Individual").trim(),
+            valor: validarImporteCotizacion(opcion.valor, "El subtotal"),
+            bonificacion: validarImporteCotizacion(
+                opcion.bonificacion ?? "0",
+                "La bonificación comercial"
+            ),
+            bonificacion_aportes: validarImporteCotizacion(
+                opcion.bonificacion_aportes ?? "0",
+                "La bonificación de aportes"
+            )
+        }))
+        : [];
+
+    if (vigencia && !/^\d{4}-\d{2}-\d{2}$/.test(vigencia)) {
+        throw errorHttp(400, "La vigencia no es válida");
+    }
+    if (opcionesDefinidas && !opciones.length) {
+        throw errorHttp(400, "Ingresá al menos una opción");
+    }
 
     return db.transaction(async tx => {
         const cotizacion = await tx.get(
             `
-            SELECT id, cliente_id, dni, nombre, celular, vendedora
+            SELECT id, cliente_id, dni, nombre, celular, vendedora,
+                   plan, tipo_cobertura
             FROM cotizaciones
             WHERE id = ?
             `,
@@ -2915,6 +2959,71 @@ async function editarPerfilCotizacion(req) {
             ]
         );
 
+        for (const opcion of opciones) {
+            const plan = opcion.plan
+                || (opcion.numero_opcion === 1 ? cotizacion.plan : "");
+            const tipoCobertura = opcion.tipo_cobertura
+                || (opcion.numero_opcion === 1
+                    ? cotizacion.tipo_cobertura || "Individual"
+                    : "Individual");
+
+            await tx.run(
+                `INSERT INTO cotizacion_opciones
+                 (cotizacion_id, numero_opcion, plan, tipo_cobertura,
+                  valor, bonificacion, bonificacion_aportes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT (cotizacion_id, numero_opcion) DO UPDATE SET
+                    plan = EXCLUDED.plan,
+                    tipo_cobertura = EXCLUDED.tipo_cobertura,
+                    valor = EXCLUDED.valor,
+                    bonificacion = EXCLUDED.bonificacion,
+                    bonificacion_aportes = EXCLUDED.bonificacion_aportes`,
+                [
+                    cotizacion.id,
+                    opcion.numero_opcion,
+                    plan,
+                    tipoCobertura,
+                    opcion.valor,
+                    opcion.bonificacion,
+                    opcion.bonificacion_aportes
+                ]
+            );
+        }
+
+        const camposComerciales = [];
+        const valoresComerciales = [];
+        const principal = opciones[0];
+
+        if (principal) {
+            camposComerciales.push(
+                "valor = ?",
+                "bonificacion = ?",
+                "bonificacion_aportes = ?"
+            );
+            valoresComerciales.push(
+                principal.valor,
+                principal.bonificacion,
+                principal.bonificacion_aportes
+            );
+        }
+        if (congelamientoDefinido) {
+            camposComerciales.push("congelamiento = ?");
+            valoresComerciales.push(congelamiento || null);
+        }
+        if (vigenciaDefinida) {
+            camposComerciales.push("vigencia = ?");
+            valoresComerciales.push(vigencia);
+        }
+        if (camposComerciales.length) {
+            valoresComerciales.push(cotizacion.id);
+            await tx.run(
+                `UPDATE cotizaciones
+                 SET ${camposComerciales.join(", ")}
+                 WHERE id = ?`,
+                valoresComerciales
+            );
+        }
+
         return {
             id: cotizacion.id,
             cliente_id: cliente.id,
@@ -2922,7 +3031,10 @@ async function editarPerfilCotizacion(req) {
             dni_normalizado: identidades.dni,
             nombre,
             celular: identidad.celular,
-            telefono_normalizado: identidades.telefono
+            telefono_normalizado: identidades.telefono,
+            congelamiento,
+            vigencia,
+            opciones
         };
     });
 }
@@ -2949,6 +3061,118 @@ app.put("/cotizaciones/:id/perfil", verificarToken, async (req, res) => {
                 : error.status
                     ? error.message
                     : "No se pudo actualizar el perfil de la cotización"
+        });
+    }
+});
+
+function validarImporteCotizacion(valor, etiqueta) {
+    const texto = String(valor ?? "").trim();
+    const numero = Number(texto.replace(/\./g, "").replace(",", "."));
+
+    if (!texto || !Number.isFinite(numero) || numero < 0) {
+        throw errorHttp(400, `${etiqueta} debe ser un importe válido`);
+    }
+
+    return texto;
+}
+
+app.put("/cotizaciones/:id/importes", verificarToken, async (req, res) => {
+    try {
+        const opciones = Array.isArray(req.body.opciones)
+            ? req.body.opciones.slice(0, 2)
+            : [];
+
+        if (!opciones.length) throw errorHttp(400, "Ingresá al menos una opción");
+
+        const normalizadas = opciones.map((opcion, index) => ({
+            numero_opcion: index + 1,
+            valor: validarImporteCotizacion(opcion.valor, "El subtotal"),
+            bonificacion: validarImporteCotizacion(opcion.bonificacion ?? "0", "La bonificación comercial"),
+            bonificacion_aportes: validarImporteCotizacion(opcion.bonificacion_aportes ?? "0", "La bonificación de aportes")
+        }));
+
+        await db.transaction(async tx => {
+            const cotizacion = await tx.get(
+                "SELECT id, vendedora FROM cotizaciones WHERE id = ?",
+                [req.params.id]
+            );
+            if (!cotizacion) throw errorHttp(404, "Cotización no encontrada");
+            if (!puedeGestionarCotizacion(req, cotizacion)) {
+                throw errorHttp(403, "No autorizado");
+            }
+
+            for (const opcion of normalizadas) {
+                const resultado = await tx.run(
+                    `UPDATE cotizacion_opciones
+                     SET valor = ?, bonificacion = ?, bonificacion_aportes = ?
+                     WHERE cotizacion_id = ? AND numero_opcion = ?`,
+                    [opcion.valor, opcion.bonificacion, opcion.bonificacion_aportes,
+                        cotizacion.id, opcion.numero_opcion]
+                );
+                if (!resultado.changes && opcion.numero_opcion === 1) {
+                    throw errorHttp(404, "No se encontró la opción principal");
+                }
+            }
+
+            const principal = normalizadas[0];
+            await tx.run(
+                `UPDATE cotizaciones
+                 SET valor = ?, bonificacion = ?, bonificacion_aportes = ?
+                 WHERE id = ?`,
+                [principal.valor, principal.bonificacion,
+                    principal.bonificacion_aportes, cotizacion.id]
+            );
+        });
+
+        res.json({ success: true, opciones: normalizadas });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudieron actualizar los importes"
+        });
+    }
+});
+
+app.delete("/cotizaciones/:id", verificarToken, async (req, res) => {
+    try {
+        const archivos = await db.transaction(async tx => {
+            const cotizacion = await tx.get(
+                "SELECT id, vendedora FROM cotizaciones WHERE id = ?",
+                [req.params.id]
+            );
+            if (!cotizacion) throw errorHttp(404, "Cotización no encontrada");
+            if (!puedeGestionarCotizacion(req, cotizacion)) {
+                throw errorHttp(403, "No autorizado");
+            }
+
+            const adjuntos = await tx.all(
+                "SELECT archivo FROM archivos WHERE cotizacion_id = ?",
+                [cotizacion.id]
+            );
+
+            await tx.run(
+                "UPDATE tareas_crm SET cotizacion_id = NULL, clave_automatica = NULL WHERE cotizacion_id = ?",
+                [cotizacion.id]
+            );
+            await tx.run("DELETE FROM cotizaciones_posventa_historial WHERE cotizacion_id = ?", [cotizacion.id]);
+            await tx.run("DELETE FROM comentarios_cotizacion WHERE cotizacion_id = ?", [cotizacion.id]);
+            await tx.run("DELETE FROM archivos WHERE cotizacion_id = ?", [cotizacion.id]);
+            await tx.run("DELETE FROM cotizacion_opciones WHERE cotizacion_id = ?", [cotizacion.id]);
+            await tx.run("DELETE FROM cotizaciones WHERE id = ?", [cotizacion.id]);
+            return adjuntos;
+        });
+
+        archivos.forEach(archivo => {
+            const ruta = path.join(uploadsDir, path.basename(archivo.archivo || ""));
+            fs.unlink(ruta, error => {
+                if (error && error.code !== "ENOENT") {
+                    console.error("No se pudo eliminar un adjunto de la cotización:", error);
+                }
+            });
+        });
+        res.json({ success: true });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo eliminar la cotización"
         });
     }
 });

@@ -259,10 +259,17 @@ async function main() {
 
     const soloDni = await crear(asesoraA, {
         dni: "21.222.333",
-        celular: "",
-        nombre: "Sólo DNI"
+        celular: "11 4555-6677",
+        nombre: "DNI y teléfono"
     });
     assert.strictEqual(soloDni.status, 200);
+
+    const sinTelefono = await crear(asesoraA, {
+        dni: "21.222.334",
+        celular: "",
+        nombre: "Sin teléfono"
+    });
+    assert.strictEqual(sinTelefono.status, 400);
 
     const soloTelefono = await crear(asesoraA, {
         dni: "",
@@ -286,6 +293,73 @@ async function main() {
     );
     assert.strictEqual(despuesVacio.total, antesVacio.total);
     await close(dbDespuesVacio);
+
+    const editarImportes = await request(
+        `/cotizaciones/${soloTelefono.body.id}/importes`,
+        asesoraA,
+        {
+            method: "PUT",
+            body: JSON.stringify({
+                opciones: [{
+                    valor: "160000",
+                    bonificacion: "10000",
+                    bonificacion_aportes: "5000"
+                }]
+            })
+        }
+    );
+    assert.strictEqual(editarImportes.status, 200);
+
+    const editarImportesAjenos = await request(
+        `/cotizaciones/${soloTelefono.body.id}/importes`,
+        asesoraB,
+        {
+            method: "PUT",
+            body: JSON.stringify({ opciones: [{ valor: "1", bonificacion: "0", bonificacion_aportes: "0" }] })
+        }
+    );
+    assert.strictEqual(editarImportesAjenos.status, 403);
+
+    const descartable = await crear(asesoraA, {
+        dni: "",
+        celular: "11 3999-8877",
+        nombre: "Para eliminar"
+    });
+    assert.strictEqual(descartable.status, 200);
+
+    const dbRelaciones = openDb();
+    await run(dbRelaciones,
+        "INSERT INTO comentarios_cotizacion (cotizacion_id, usuario, comentario) VALUES (?, ?, ?)",
+        [descartable.body.id, "asesora_a", "Comentario"]
+    );
+    await run(dbRelaciones,
+        "INSERT INTO tareas_crm (titulo, fecha, usuario_responsable, cotizacion_id, clave_automatica) VALUES (?, ?, ?, ?, ?)",
+        ["Seguimiento", "2026-10-02", "asesora_a", descartable.body.id, "prueba"]
+    );
+    await close(dbRelaciones);
+
+    const eliminarAjena = await request(`/cotizaciones/${descartable.body.id}`, asesoraB, {
+        method: "DELETE"
+    });
+    assert.strictEqual(eliminarAjena.status, 403);
+
+    const eliminarPropia = await request(`/cotizaciones/${descartable.body.id}`, asesoraA, {
+        method: "DELETE"
+    });
+    assert.strictEqual(eliminarPropia.status, 200);
+
+    const dbDespuesEliminar = openDb();
+    const cotizacionEliminada = await get(dbDespuesEliminar,
+        "SELECT id FROM cotizaciones WHERE id = ?", [descartable.body.id]);
+    const comentariosHuerfanos = await get(dbDespuesEliminar,
+        "SELECT COUNT(*) AS total FROM comentarios_cotizacion WHERE cotizacion_id = ?", [descartable.body.id]);
+    const tareaDesvinculada = await get(dbDespuesEliminar,
+        "SELECT cotizacion_id, clave_automatica FROM tareas_crm WHERE titulo = 'Seguimiento'");
+    assert.strictEqual(cotizacionEliminada, undefined);
+    assert.strictEqual(comentariosHuerfanos.total, 0);
+    assert.strictEqual(tareaDesvinculada.cotizacion_id, null);
+    assert.strictEqual(tareaDesvinculada.clave_automatica, null);
+    await close(dbDespuesEliminar);
 
     const dbAntesEdicion = openDb();
     const clientesAntesEdicion = await get(
@@ -503,7 +577,7 @@ async function main() {
             "propietaria cambia el teléfono compartido",
             "Primer contacto reconoce el teléfono actualizado",
             "crear con DNI y teléfono",
-            "crear sólo con DNI",
+            "rechazar creación sólo con DNI",
             "crear sólo con teléfono",
             "rechazar sin DNI ni teléfono",
             "propietaria agrega DNI",
