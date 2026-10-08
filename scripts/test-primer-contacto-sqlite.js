@@ -291,6 +291,7 @@ async function main() {
             telefono: telefonoNuevo,
             nombre: "Contacto nuevo",
             observacion: "Primer intento",
+            procedencia_codigo: "base",
             clave_idempotencia: "individual-nuevo-a-0001"
         })
     });
@@ -303,6 +304,7 @@ async function main() {
             telefono: telefonoNuevo,
             nombre: "Contacto nuevo",
             observacion: "Primer intento",
+            procedencia_codigo: "base",
             clave_idempotencia: "individual-nuevo-a-0001"
         })
     });
@@ -344,6 +346,260 @@ async function main() {
     });
     assert.strictEqual(repetidoConfirmado.status, 201);
     assert.strictEqual(repetidoConfirmado.body.analisis.cantidad_contactos, 3);
+
+    const codigosProcedencia = [
+        "base",
+        "base_clinica",
+        "publicidad_oficial",
+        "publicidad_estacion",
+        "calle",
+        "oficina",
+        "micaela_calle",
+        "referido"
+    ];
+    const catalogoSeleccionable = await request("/primer-contacto/procedencias", sellerA);
+    assert.strictEqual(catalogoSeleccionable.status, 200);
+    assert.deepStrictEqual(
+        catalogoSeleccionable.body.map(item => item.codigo),
+        codigosProcedencia
+    );
+    assert.ok(catalogoSeleccionable.body.every(item => item.seleccionable === true));
+
+    const sinProcedencia = await request("/primer-contacto", sellerA, {
+        method: "POST",
+        body: JSON.stringify({
+            telefono: "11 8100-0001",
+            clave_idempotencia: "sin-procedencia-0001"
+        })
+    });
+    assert.strictEqual(sinProcedencia.status, 400);
+
+    const sinInformarNuevo = await request("/primer-contacto", sellerA, {
+        method: "POST",
+        body: JSON.stringify({
+            telefono: "11 8100-0002",
+            procedencia_codigo: "sin_informar",
+            clave_idempotencia: "sin-informar-nuevo-0001"
+        })
+    });
+    assert.strictEqual(sinInformarNuevo.status, 400);
+
+    for (const [indice, codigo] of codigosProcedencia.entries()) {
+        const alta = await request("/primer-contacto", sellerA, {
+            method: "POST",
+            body: JSON.stringify({
+                telefono: `11 82${String(indice).padStart(2, "0")}-0001`,
+                procedencia_codigo: codigo,
+                clave_idempotencia: `procedencia-${codigo}-0001`
+            })
+        });
+        assert.strictEqual(alta.status, 201);
+        assert.strictEqual(alta.body.analisis.procedencia.codigo, codigo);
+    }
+
+    const duplicadoMantieneProcedencia = await request("/primer-contacto", sellerB, {
+        method: "POST",
+        body: JSON.stringify({
+            telefono: "11 8200-0001",
+            procedencia_codigo: "referido",
+            clave_idempotencia: "duplicado-mantiene-procedencia-0001"
+        })
+    });
+    assert.strictEqual(duplicadoMantieneProcedencia.status, 201);
+    assert.strictEqual(duplicadoMantieneProcedencia.body.analisis.procedencia.codigo, "base");
+
+    const dbHistorico = openDatabase();
+    let historicoId;
+    try {
+        const sinInformar = await get(
+            dbHistorico,
+            "SELECT id FROM procedencias WHERE codigo = 'sin_informar'"
+        );
+        historicoId = (await run(
+            dbHistorico,
+            `INSERT INTO primer_contacto_identidades
+             (telefono_original, telefono_normalizado, procedencia_id)
+             VALUES (?, ?, ?)`,
+            ["11 8300-0001", "1183000001", sinInformar.id]
+        )).lastID;
+        await run(
+            dbHistorico,
+            `INSERT INTO primer_contacto_gestiones
+             (contacto_id, asesora, clave_idempotencia)
+             VALUES (?, ?, ?)`,
+            [historicoId, "vendedora_a", "historico-sin-informar-0001"]
+        );
+    } finally {
+        await close(dbHistorico);
+    }
+    const historicoDetectado = await request(
+        "/primer-contacto/buscar?telefono=1183000001",
+        sellerA
+    );
+    assert.strictEqual(historicoDetectado.body.procedencia.codigo, "sin_informar");
+    const completarHistorico = await request(
+        `/primer-contacto/${historicoId}/procedencia`,
+        sellerA,
+        {
+            method: "PUT",
+            body: JSON.stringify({ procedencia_codigo: "referido" })
+        }
+    );
+    assert.strictEqual(completarHistorico.status, 200);
+    assert.strictEqual(completarHistorico.body.procedencia.codigo, "referido");
+    const reemplazoNoPermitido = await request(
+        `/primer-contacto/${historicoId}/procedencia`,
+        sellerA,
+        {
+            method: "PUT",
+            body: JSON.stringify({ procedencia_codigo: "calle" })
+        }
+    );
+    assert.strictEqual(reemplazoNoPermitido.status, 409);
+
+    const contactoMarcas = await request("/primer-contacto", sellerA, {
+        method: "POST",
+        body: JSON.stringify({
+            telefono: "11 8400-0001",
+            procedencia_codigo: "base_clinica",
+            clave_idempotencia: "contactabilidad-alta-0001"
+        })
+    });
+    const contactoMarcasId = contactoMarcas.body.analisis.contacto_id;
+    const activarNoInteresa = await request(
+        `/primer-contacto/${contactoMarcasId}/contactabilidad`,
+        sellerA,
+        {
+            method: "PUT",
+            body: JSON.stringify({
+                marca: "no_interesa",
+                valor: true,
+                clave_idempotencia: "no-interesa-on-0001"
+            })
+        }
+    );
+    assert.strictEqual(activarNoInteresa.status, 200);
+    const quitarNoInteresa = await request(
+        `/primer-contacto/${contactoMarcasId}/contactabilidad`,
+        sellerA,
+        {
+            method: "PUT",
+            body: JSON.stringify({
+                marca: "no_interesa",
+                valor: false,
+                clave_idempotencia: "no-interesa-off-0001"
+            })
+        }
+    );
+    assert.strictEqual(quitarNoInteresa.status, 200);
+
+    const activarNoEnviar = await request(
+        `/primer-contacto/${contactoMarcasId}/contactabilidad`,
+        sellerA,
+        {
+            method: "PUT",
+            body: JSON.stringify({
+                marca: "no_enviar_mensajes",
+                valor: true,
+                clave_idempotencia: "no-enviar-on-0001"
+            })
+        }
+    );
+    assert.strictEqual(activarNoEnviar.status, 200);
+    const quitarNoEnviarAsesora = await request(
+        `/primer-contacto/${contactoMarcasId}/contactabilidad`,
+        sellerA,
+        {
+            method: "PUT",
+            body: JSON.stringify({
+                marca: "no_enviar_mensajes",
+                valor: false,
+                motivo: "Pedido de la persona",
+                clave_idempotencia: "no-enviar-off-asesora-0001"
+            })
+        }
+    );
+    assert.strictEqual(quitarNoEnviarAsesora.status, 403);
+    const quitarNoEnviarSinMotivo = await request(
+        `/primer-contacto/${contactoMarcasId}/contactabilidad`,
+        admin,
+        {
+            method: "PUT",
+            body: JSON.stringify({
+                marca: "no_enviar_mensajes",
+                valor: false,
+                confirmar_retiro: true,
+                clave_idempotencia: "no-enviar-off-admin-sin-motivo-0001"
+            })
+        }
+    );
+    assert.strictEqual(quitarNoEnviarSinMotivo.status, 400);
+
+    const bloqueadoBusqueda = await request(
+        "/primer-contacto/buscar?telefono=1184000001",
+        sellerB
+    );
+    assert.strictEqual(bloqueadoBusqueda.body.no_enviar_mensajes, true);
+    assert.strictEqual(bloqueadoBusqueda.body.seleccion_recomendada, false);
+    const bloqueadoGestion = await request("/primer-contacto", sellerB, {
+        method: "POST",
+        body: JSON.stringify({
+            telefono: "11 8400-0001",
+            confirmar_repetido: true,
+            clave_idempotencia: "bloqueado-gestion-0001"
+        })
+    });
+    assert.strictEqual(bloqueadoGestion.status, 409);
+    const bloqueadoTanda = await request("/primer-contacto/analizar-multiple", sellerB, {
+        method: "POST",
+        body: JSON.stringify({
+            numeros: ["11 8400-0001", "11 8400-0002"],
+            procedencia_codigo: "calle"
+        })
+    });
+    assert.strictEqual(bloqueadoTanda.status, 200);
+    assert.strictEqual(bloqueadoTanda.body.resultados[0].no_enviar_mensajes, true);
+    assert.strictEqual(bloqueadoTanda.body.resultados[0].seleccion_recomendada, false);
+    const confirmarBloqueadoTanda = await request(
+        "/primer-contacto/confirmar-multiple",
+        sellerB,
+        {
+            method: "POST",
+            body: JSON.stringify({
+                clave_operacion: "lote-con-bloqueado-0001",
+                procedencia_codigo: "calle",
+                items: [{
+                    telefono: "11 8400-0001",
+                    confirmar_repetido: true
+                }]
+            })
+        }
+    );
+    assert.strictEqual(confirmarBloqueadoTanda.status, 409);
+
+    const quitarNoEnviarAdmin = await request(
+        `/primer-contacto/${contactoMarcasId}/contactabilidad`,
+        admin,
+        {
+            method: "PUT",
+            body: JSON.stringify({
+                marca: "no_enviar_mensajes",
+                valor: false,
+                motivo: "La persona revocó expresamente la restricción",
+                confirmar_retiro: true,
+                clave_idempotencia: "no-enviar-off-admin-0001"
+            })
+        }
+    );
+    assert.strictEqual(quitarNoEnviarAdmin.status, 200);
+    const marcasAuditadas = await request(
+        "/primer-contacto/buscar?telefono=1184000001",
+        sellerA
+    );
+    assert.ok(marcasAuditadas.body.historial_contactabilidad.length >= 4);
+    assert.ok(marcasAuditadas.body.historial_contactabilidad.some(item =>
+        item.motivo === "La persona revocó expresamente la restricción"
+    ));
 
     const clienteDetectado = await request(
         "/primer-contacto/buscar?telefono=5491123456789",
@@ -387,6 +643,11 @@ async function main() {
         assert.strictEqual(resultado.body.existe_en_crm, true);
         assert.strictEqual(String(resultado.body.cliente.id), String(clienteMaria));
         assert.strictEqual(resultado.body.cantidad_cotizaciones_crm, 1);
+        assert.deepStrictEqual(resultado.body.cotizaciones_por_asesora, [{
+            asesora: "vendedora_b",
+            cantidad: 1
+        }]);
+        assert.strictEqual(resultado.body.afiliado, false);
     }
 
     const gestionMariaOtraAsesora = await request(
@@ -397,6 +658,7 @@ async function main() {
             body: JSON.stringify({
                 telefono: "01133445566",
                 observacion: "Contacto sobre cliente ya cotizado",
+                procedencia_codigo: "referido",
                 clave_idempotencia: "individual-maria-otra-asesora-0001"
             })
         }
@@ -484,6 +746,7 @@ async function main() {
             method: "POST",
             body: JSON.stringify({
                 telefono: "+54 11 7788-9900",
+                procedencia_codigo: "publicidad_oficial",
                 clave_idempotencia: "individual-cotizacion-sin-cliente-0001"
             })
         }
@@ -503,6 +766,20 @@ async function main() {
         String(clienteSinCotizacion)
     );
     assert.strictEqual(clienteSinCotizacionDetectado.body.cantidad_cotizaciones_crm, 0);
+    assert.strictEqual(clienteSinCotizacionDetectado.body.cotizado, false);
+    assert.strictEqual(clienteSinCotizacionDetectado.body.afiliado, false);
+
+    const contactoClienteSinCotizacion = await request("/primer-contacto", sellerA, {
+        method: "POST",
+        body: JSON.stringify({
+            telefono: "11 4455-6677",
+            procedencia_codigo: "base_clinica",
+            clave_idempotencia: "cliente-sin-cotizacion-0001"
+        })
+    });
+    assert.strictEqual(contactoClienteSinCotizacion.status, 201);
+    assert.strictEqual(contactoClienteSinCotizacion.body.analisis.cotizado, false);
+    assert.strictEqual(contactoClienteSinCotizacion.body.analisis.afiliado, false);
 
     const dbClientesAntes = openDatabase();
     const cantidadClientesAntes = await get(
@@ -515,6 +792,7 @@ async function main() {
         method: "POST",
         body: JSON.stringify({
             telefono: "+54 9 11 2345-6789",
+            procedencia_codigo: "oficina",
             clave_idempotencia: "individual-cliente-a-0001"
         })
     });
@@ -528,7 +806,7 @@ async function main() {
         { length: cantidad },
         (_, indice) => `11 ${bloque}-${String(indice + 1).padStart(4, "0")}`
     );
-    const cantidadesPermitidas = [1, 10, 15, 29, 30];
+    const cantidadesPermitidas = [1, 10, 15, 29, 30, 50];
 
     for (const [indice, cantidad] of cantidadesPermitidas.entries()) {
         const numeros = numerosLote(cantidad, String(6100 + indice * 100));
@@ -537,48 +815,50 @@ async function main() {
             body: JSON.stringify({ numeros })
         });
         assert.strictEqual(preview.status, 200);
-        assert.strictEqual(preview.body.limite, 30);
+        assert.strictEqual(preview.body.limite, 50);
         assert.strictEqual(preview.body.resultados.length, cantidad);
     }
 
-    const treinta = numerosLote(30, "6700");
-    const confirmarTreinta = await request(
+    const cincuenta = numerosLote(50, "6700");
+    const confirmarCincuenta = await request(
         "/primer-contacto/confirmar-multiple",
         sellerA,
         {
             method: "POST",
             body: JSON.stringify({
-                clave_operacion: "lote-exacto-treinta-0001",
-                items: treinta.map(telefono => ({ telefono }))
+                clave_operacion: "lote-exacto-cincuenta-0001",
+                procedencia_codigo: "calle",
+                items: cincuenta.map(telefono => ({ telefono }))
             })
         }
     );
-    assert.strictEqual(confirmarTreinta.status, 200);
-    assert.strictEqual(confirmarTreinta.body.creadas, 30);
+    assert.strictEqual(confirmarCincuenta.status, 200);
+    assert.strictEqual(confirmarCincuenta.body.creadas, 50);
 
-    const treintaUno = numerosLote(31, "6800");
-    const previewTreintaUno = await request("/primer-contacto/analizar-multiple", sellerA, {
+    const cincuentaUno = numerosLote(51, "6800");
+    const previewCincuentaUno = await request("/primer-contacto/analizar-multiple", sellerA, {
         method: "POST",
-        body: JSON.stringify({ numeros: treintaUno })
+        body: JSON.stringify({ numeros: cincuentaUno })
     });
-    assert.strictEqual(previewTreintaUno.status, 400);
+    assert.strictEqual(previewCincuentaUno.status, 400);
     assert.strictEqual(
-        previewTreintaUno.body.error,
-        "Podés cargar un máximo de 30 números por vez."
+        previewCincuentaUno.body.error,
+        "Podés cargar un máximo de 50 números por vez."
     );
 
-    const confirmarTreintaUno = await request(
+    const confirmarCincuentaUno = await request(
         "/primer-contacto/confirmar-multiple",
         sellerA,
         {
             method: "POST",
             body: JSON.stringify({
-                clave_operacion: "lote-rechazado-treinta-uno-0001",
-                items: treintaUno.map(telefono => ({ telefono }))
+                clave_operacion: "lote-rechazado-cincuenta-uno-0001",
+                procedencia_codigo: "calle",
+                items: cincuentaUno.map(telefono => ({ telefono }))
             })
         }
     );
-    assert.strictEqual(confirmarTreintaUno.status, 400);
+    assert.strictEqual(confirmarCincuentaUno.status, 400);
 
     const previewRepetido = await request("/primer-contacto/analizar-multiple", sellerA, {
         method: "POST",
@@ -607,6 +887,7 @@ async function main() {
         method: "POST",
         body: JSON.stringify({
             clave_operacion: "lote-prueba-seleccion-0001",
+            procedencia_codigo: "base_clinica",
             items: seleccionParcial.slice(0, 2).map(telefono => ({ telefono }))
         })
     });
@@ -620,6 +901,7 @@ async function main() {
             method: "POST",
             body: JSON.stringify({
                 clave_operacion: "lote-prueba-seleccion-0001",
+                procedencia_codigo: "base_clinica",
                 items: seleccionParcial.slice(0, 2).map(telefono => ({ telefono }))
             })
         }
@@ -649,6 +931,22 @@ async function main() {
         listaVendedoraForzada.body.every(gestion => gestion.asesora === "vendedora_a")
     );
 
+    const resumenVendedora = await request("/primer-contacto/resumen", sellerA);
+    assert.strictEqual(resumenVendedora.status, 200);
+    const resumenBaseVendedora = resumenVendedora.body.procedencias.find(
+        item => item.codigo === "base"
+    );
+    assert.strictEqual(resumenBaseVendedora.cantidad, 2);
+    const resumenAdminB = await request(
+        "/primer-contacto/resumen?asesora=vendedora_b",
+        admin
+    );
+    assert.strictEqual(resumenAdminB.status, 200);
+    const resumenBaseAdminB = resumenAdminB.body.procedencias.find(
+        item => item.codigo === "base"
+    );
+    assert.strictEqual(resumenBaseAdminB.cantidad, 2);
+
     const dbExportacion = openDatabase();
     try {
         await run(
@@ -675,8 +973,23 @@ async function main() {
         sellerA
     );
     assert.strictEqual(excelVendedora.status, 200);
-    const filasVendedora = excelVendedora.workbook
-        .getWorksheet("Primer contacto")
+    const hojaVendedora = excelVendedora.workbook.getWorksheet("Primer contacto");
+    assert.deepStrictEqual(
+        hojaVendedora.getRow(1).values.slice(1),
+        [
+            "Fecha",
+            "Hora",
+            "Asesora",
+            "Nombre",
+            "Teléfono",
+            "Teléfono normalizado",
+            "Cliente vinculado",
+            "Cliente ID",
+            "Cotizaciones vinculadas"
+        ]
+    );
+    assert.ok(!hojaVendedora.getRow(1).values.includes("Observación"));
+    const filasVendedora = hojaVendedora
         .getRows(2, 1000)
         .filter(row => row?.actualCellCount > 0);
     assert.ok(filasVendedora.length >= 2);
@@ -685,6 +998,15 @@ async function main() {
         filasVendedora.filter(row => row.getCell(6).value === "1155550001").length,
         2
     );
+    const telefonosLoteExportados = new Set(
+        filasVendedora
+            .map(row => String(row.getCell(6).value || ""))
+            .filter(telefono => /^116700\d{4}$/.test(telefono))
+    );
+    assert.strictEqual(telefonosLoteExportados.size, 50);
+    assert.ok(cincuenta.every(telefono =>
+        telefonosLoteExportados.has(telefono.replace(/\D/g, ""))
+    ));
 
     const excelAdmin = await requestExcel("/primer-contacto/exportar-excel", admin);
     assert.strictEqual(excelAdmin.status, 200);
@@ -748,6 +1070,122 @@ async function main() {
         }
     );
     assert.strictEqual(cotizacionPropia.status, 200);
+
+    const numeroCotizadoVariasAsesoras = await request(
+        "/primer-contacto/buscar?telefono=1123456789",
+        sellerA
+    );
+    assert.strictEqual(numeroCotizadoVariasAsesoras.status, 200);
+    assert.strictEqual(numeroCotizadoVariasAsesoras.body.cantidad_cotizaciones_crm, 2);
+    assert.deepStrictEqual(
+        [...numeroCotizadoVariasAsesoras.body.asesoras_cotizaciones].sort(),
+        ["vendedora_a", "vendedora_b"]
+    );
+    assert.deepStrictEqual(
+        [...numeroCotizadoVariasAsesoras.body.cotizaciones_por_asesora]
+            .sort((a, b) => a.asesora.localeCompare(b.asesora)),
+        [
+            { asesora: "vendedora_a", cantidad: 1 },
+            { asesora: "vendedora_b", cantidad: 1 }
+        ]
+    );
+    assert.strictEqual(numeroCotizadoVariasAsesoras.body.afiliado, false);
+
+    const dbEstadosComerciales = openDatabase();
+    try {
+        await run(
+            dbEstadosComerciales,
+            `INSERT INTO cotizaciones (
+                cliente_id, nombre, celular, plan, valor, vendedora, estado,
+                etapa_pipeline
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                clienteMaria, "Cliente María", "11 3344-5566", "Oro",
+                "125000", "vendedora_b", "Afiliado", "Afiliados"
+            ]
+        );
+    } finally {
+        await close(dbEstadosComerciales);
+    }
+
+    const numeroAfiliadoMismaAsesora = await request(
+        "/primer-contacto/buscar?telefono=1133445566",
+        sellerA
+    );
+    assert.strictEqual(numeroAfiliadoMismaAsesora.status, 200);
+    assert.strictEqual(numeroAfiliadoMismaAsesora.body.cotizado, true);
+    assert.strictEqual(numeroAfiliadoMismaAsesora.body.afiliado, true);
+    assert.strictEqual(numeroAfiliadoMismaAsesora.body.cantidad_cotizaciones_crm, 2);
+    assert.deepStrictEqual(numeroAfiliadoMismaAsesora.body.cotizaciones_por_asesora, [{
+        asesora: "vendedora_b",
+        cantidad: 2
+    }]);
+
+    const [estadosVendedora, estadosAdmin] = await Promise.all([
+        request("/primer-contacto", sellerA),
+        request("/primer-contacto", admin)
+    ]);
+    const buscarEstado = (respuesta, telefono) =>
+        respuesta.body.find(item => item.telefono_normalizado === telefono);
+    const mariaVendedora = buscarEstado(estadosVendedora, "1133445566");
+    const mariaAdmin = buscarEstado(estadosAdmin, "1133445566");
+    assert.ok(mariaVendedora);
+    assert.ok(mariaAdmin);
+    assert.strictEqual(mariaVendedora.afiliado, true);
+    assert.strictEqual(mariaAdmin.afiliado, true);
+    assert.strictEqual(mariaVendedora.cantidad_cotizaciones_crm, 2);
+    assert.strictEqual(mariaAdmin.cantidad_cotizaciones_crm, 2);
+
+    const soloPrimerContacto = buscarEstado(estadosVendedora, "1155550001");
+    const clienteSinCotizacionListado = buscarEstado(estadosVendedora, "1144556677");
+    assert.ok(soloPrimerContacto);
+    assert.ok(clienteSinCotizacionListado);
+    assert.strictEqual(soloPrimerContacto.cotizado, false);
+    assert.strictEqual(soloPrimerContacto.afiliado, false);
+    assert.strictEqual(clienteSinCotizacionListado.cotizado, false);
+    assert.strictEqual(clienteSinCotizacionListado.afiliado, false);
+
+    const scriptFrontend = fs.readFileSync(
+        path.join(repoRoot, "public", "script.js"),
+        "utf8"
+    );
+    const htmlFrontend = fs.readFileSync(
+        path.join(repoRoot, "public", "app.html"),
+        "utf8"
+    );
+    assert.ok(!scriptFrontend.includes("wa.me"));
+    assert.ok(!htmlFrontend.includes("wa.me"));
+    assert.ok(!scriptFrontend.includes("Cliente CRM"));
+    assert.ok(scriptFrontend.includes("Cotizado por:"));
+    assert.ok(scriptFrontend.includes("estado-afiliado"));
+    const inicioFormateadorPrimerContacto = scriptFrontend.indexOf(
+        "function formatearFechaHoraPrimerContacto"
+    );
+    const finFormateadorPrimerContacto = scriptFrontend.indexOf(
+        "let cotizacionModalTrigger",
+        inicioFormateadorPrimerContacto
+    );
+    const codigoFormateadorPrimerContacto = scriptFrontend.slice(
+        inicioFormateadorPrimerContacto,
+        finFormateadorPrimerContacto
+    );
+    const formatearFechaHoraPrimerContactoPrueba = new Function(
+        `${codigoFormateadorPrimerContacto}; return formatearFechaHoraPrimerContacto;`
+    )();
+    assert.strictEqual(
+        formatearFechaHoraPrimerContactoPrueba("2026-10-08T02:54:00.000Z"),
+        "07/10/2026 - 23:54"
+    );
+    assert.strictEqual(
+        formatearFechaHoraPrimerContactoPrueba("2026-10-07T03:04:00.000Z"),
+        "07/10/2026 - 00:04"
+    );
+    const codigoPrimerContacto = scriptFrontend.slice(
+        scriptFrontend.indexOf("let primerContactoIndividualEnCurso"),
+        scriptFrontend.indexOf("// INIT")
+    );
+    assert.ok(!codigoPrimerContacto.includes("formatearFecha("));
+    assert.ok(!/\b(Hoy|Ayer|a\. m\.|p\. m\.)\b/.test(codigoPrimerContacto));
 
     const dbFinal = openDatabase();
     try {
@@ -823,22 +1261,42 @@ async function main() {
             "evitar falsos duplicados con 15 dentro de diez dígitos",
             "vincular la gestión al cliente existente al guardar",
             "cotización sin cliente no crea un cliente automáticamente",
-            "carga múltiple acepta 1, 10, 15, 29 y 30 números",
-            "confirmación registra exactamente 30 números",
-            "rechazo total de 31 números en análisis y confirmación",
+            "ocho procedencias seleccionables y Sin informar sólo histórico",
+            "procedencia obligatoria y alta individual con cada procedencia",
+            "duplicado conserva su procedencia original",
+            "completar procedencia histórica sin reemplazo libre",
+            "No le interesa reversible y auditado",
+            "No enviar mensajes bloquea nuevas gestiones",
+            "asesora no retira bloqueo y Administración requiere confirmación y motivo",
+            "búsqueda y tanda identifican números bloqueados",
+            "carga múltiple acepta 1, 10, 15, 29, 30 y 50 números",
+            "confirmación registra exactamente 50 números con una procedencia",
+            "rechazo total de 51 números en análisis y confirmación",
             "repetidos dentro de la tanda",
             "número inválido",
             "confirmación registra sólo seleccionados",
             "doble confirmación múltiple idempotente",
             "vendedora lista sólo sus gestiones",
             "admin consulta todas las gestiones",
+            "resumen por procedencia cuenta teléfonos únicos",
+            "filtro administrativo por asesora",
             "vendedora exporta solo sus propias gestiones",
+            "Excel no contiene la columna Observación",
+            "los 50 teléfonos de una carga múltiple aparecen una sola vez en el Excel",
             "admin exporta todas las gestiones o filtra por asesora",
             "exportacion respeta el filtro de fecha",
             "cada gestion del mismo telefono ocupa una fila del Excel",
             "no existe edición de gestión ajena",
             "cotización ajena continúa protegida",
-            "cotización propia sobre cliente compartido"
+            "cotización propia sobre cliente compartido",
+            "número cotizado muestra cantidad y asesoras",
+            "cliente sin cotización no recibe estado técnico ni Cotizado",
+            "varias cotizaciones de una asesora se agrupan por cantidad",
+            "cotizaciones de distintas asesoras conservan un único teléfono",
+            "Afiliado se deriva del estado comercial existente y tiene prioridad",
+            "administradora y vendedora reciben los mismos estados permitidos",
+            "fechas visibles de Primer Contacto usan DD/MM/AAAA - HH:mm en Buenos Aires",
+            "ausencia de enlaces funcionales de WhatsApp"
         ]
     }, null, 2));
 }

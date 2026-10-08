@@ -114,7 +114,9 @@ $pipeline-neutral: #dfeaf3;
 
 .select-personalizado-menu {
     position: fixed;
-    z-index: 10000;
+    // El menú vive en body para evitar recortes por overflow de sus contenedores.
+    // Este nivel lo mantiene por encima de todos los overlays del CRM.
+    z-index: 100100;
     display: grid;
     gap: 4px;
     overflow-y: auto;
@@ -204,23 +206,27 @@ $pipeline-neutral: #dfeaf3;
 // PRIMER CONTACTO
 // =======================
 
-.primer-contacto-page {
+.container.primer-contacto-page {
     display: grid;
-    gap: 22px;
+    gap: 16px;
+    width: calc(100% - 40px);
+    max-width: 1280px;
+    margin: 24px auto;
+
+    > * { min-width: 0; }
 }
 
 .primer-contacto-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 24px;
-    padding: 24px;
-    border: 1px solid rgba(79, 70, 229, 0.14);
-    border-radius: 20px;
-    background: linear-gradient(135deg, #fff 0%, #f4f7ff 100%);
+    gap: 16px;
+    padding: 4px 0 10px;
+    border-bottom: 1px solid #e2e8f0;
 
     h2 {
-        margin: 4px 0 6px;
+        margin: 0;
+        font-size: 24px;
     }
 
     p {
@@ -269,12 +275,60 @@ $pipeline-neutral: #dfeaf3;
     padding: 9px 14px;
 }
 
+.primer-contacto-resumen-panel {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 2px 0;
+}
+
+.primer-contacto-resumen-heading {
+    flex: 0 0 auto;
+    h3 { margin: 0; color: #475569; font-size: 13px; font-weight: 800; }
+    span { color: #64748b; font-size: 12px; font-weight: 700; }
+}
+
+.primer-contacto-resumen-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+    padding: 2px 1px 5px;
+}
+
+.primer-contacto-resumen-card {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 30px;
+    height: 30px;
+    margin: 0;
+    padding: 4px 9px;
+    border: 1px solid #dbe5ee;
+    border-radius: 999px;
+    background: #f8fafc;
+    box-shadow: none;
+    color: $text;
+    white-space: nowrap;
+
+    span { font-size: 11px; font-weight: 700; }
+    strong { color: $secondary; font-size: 13px; }
+
+    &.resumen-total {
+        border-color: #b9d9ee;
+        background: #eef7fc;
+    }
+}
+
 .primer-contacto-toolbar {
     display: grid;
-    grid-template-columns: minmax(260px, 1.35fr) minmax(140px, 0.7fr) minmax(250px, 1fr);
+    grid-template-columns: minmax(240px, 1.4fr) minmax(130px, 0.55fr) minmax(210px, 1fr) minmax(250px, 1.1fr);
     align-items: end;
     gap: 12px;
-    padding: 18px;
+    padding: 14px;
     border: 1px solid #e2e8f0;
     border-radius: 16px;
     background: #fff;
@@ -283,6 +337,7 @@ $pipeline-neutral: #dfeaf3;
     .primer-contacto-vista {
         display: grid;
         gap: 7px;
+        min-width: 0;
 
         > span {
             color: #475569;
@@ -294,10 +349,12 @@ $pipeline-neutral: #dfeaf3;
 
 .primer-contacto-toolbar input,
 .primer-contacto-toolbar select,
-.primer-contacto-toolbar button {
+.primer-contacto-toolbar button,
+.primer-contacto-toolbar .select-personalizado-trigger {
     height: 42px;
     min-height: 42px;
     margin: 0;
+    min-width: 0;
 }
 
 .primer-contacto-search {
@@ -331,7 +388,7 @@ $pipeline-neutral: #dfeaf3;
 
 .primer-contacto-vista > div {
     display: grid;
-    grid-template-columns: minmax(170px, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: stretch;
     gap: 8px;
 
@@ -370,20 +427,21 @@ $pipeline-neutral: #dfeaf3;
 
 .primer-contacto-listado {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: start;
+    gap: 12px;
 }
 
 .primer-contacto-card,
 .primer-contacto-resumen {
     display: grid;
-    gap: 14px;
+    gap: 12px;
     min-width: 0;
-    padding: 18px;
+    padding: 15px;
     border: 1px solid #e2e8f0;
-    border-radius: 18px;
+    border-radius: 14px;
     background: #fff;
-    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+    box-shadow: 0 5px 16px rgba(15, 23, 42, 0.045);
 
     h3,
     p {
@@ -393,7 +451,16 @@ $pipeline-neutral: #dfeaf3;
 
 .primer-contacto-card-main {
     display: grid;
-    gap: 9px;
+    gap: 6px;
+}
+
+.primer-contacto-card-topline {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+
+    h3 { margin: 0; font-size: 16px; }
 }
 
 .primer-contacto-card-fecha {
@@ -695,24 +762,33 @@ $pipeline-neutral: #dfeaf3;
     }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1180px) {
     .primer-contacto-toolbar {
         grid-template-columns: minmax(260px, 1.4fr) minmax(150px, 0.6fr);
     }
 
-    .primer-contacto-vista {
+    .primer-contacto-vista,
+    .primer-contacto-filtro-procedencia {
         grid-column: 1 / -1;
     }
 
     .primer-contacto-listado {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 900px) {
+    .primer-contacto-listado {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
 @media (max-width: 640px) {
     .primer-contacto-header {
-        padding: 18px;
+        padding: 0 0 10px;
+        align-items: flex-start;
         flex-direction: column;
+        gap: 10px;
 
         > div:first-child {
             flex-basis: auto;
@@ -726,18 +802,63 @@ $pipeline-neutral: #dfeaf3;
 
     .primer-contacto-actions {
         justify-content: flex-start;
+
+        button {
+            min-height: 38px;
+            height: 38px;
+            padding: 7px 10px;
+            font-size: 12px;
+        }
+    }
+
+    .primer-contacto-resumen-panel {
+        display: grid;
+        gap: 5px;
     }
 
     .primer-contacto-toolbar {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
+        padding: 14px;
     }
 
+    .primer-contacto-search,
+    .primer-contacto-filtro-procedencia,
+    .primer-contacto-toolbar > label,
     .primer-contacto-vista {
-        grid-column: auto;
+        grid-column: 1 / -1;
     }
 
     .primer-contacto-vista > div {
-        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-columns: minmax(0, 1fr);
+
+        button { width: 100%; }
+    }
+
+    .primer-contacto-resumen-grid {
+        display: flex;
+        overflow-x: auto;
+        padding-bottom: 3px;
+        scroll-snap-type: inline proximity;
+    }
+
+    .primer-contacto-resumen-card {
+        flex: 0 0 auto;
+        scroll-snap-align: start;
+    }
+
+    .primer-contacto-card-topline {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .primer-contacto-listado {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .primer-contacto-card-datos {
+        grid-template-columns: 1fr;
+        gap: 7px;
     }
 
     .primer-contacto-resumen-head {
@@ -873,6 +994,193 @@ select {
 
 #usuarioSelect:focus {
     background-color: #ffffff;
+}
+
+.primer-contacto-resumen {
+    gap: 10px;
+
+    > p {
+        color: #475569;
+        font-size: 13px;
+        line-height: 1.45;
+    }
+}
+
+.primer-contacto-card {
+    gap: 9px;
+    padding: 12px;
+}
+
+.primer-contacto-detalle-procedencia {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+
+    p { margin: 0; }
+}
+
+.primer-contacto-editar-accion {
+    display: inline-flex;
+    width: auto;
+    min-height: 28px;
+    height: 28px;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+    padding: 3px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: none;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.primer-contacto-resumen .primer-contacto-card-actions {
+    margin-top: 3px;
+    padding-top: 12px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.primer-contacto-resumen .primer-contacto-card-actions button {
+    min-width: 0;
+    min-height: 34px;
+    height: 34px;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+.primer-contacto-accion-restriccion {
+    border: 1px solid #f1a7a7;
+    background: #fff;
+    box-shadow: none;
+    color: #a61b1b;
+}
+
+.primer-contacto-resumen .primer-contacto-card-actions .primer-contacto-accion-principal {
+    min-height: 40px;
+    height: 40px;
+    margin-left: auto;
+    padding-inline: 16px;
+}
+
+.primer-contacto-card-nombre {
+    color: #64748b;
+    font-size: 13px;
+}
+
+.primer-contacto-card-datos {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 2px 0 0;
+
+    div { min-width: 0; }
+    dt {
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+    dd {
+        margin: 2px 0 0;
+        overflow-wrap: anywhere;
+        font-size: 13px;
+        font-weight: 700;
+    }
+}
+
+.primer-contacto-card-estados {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+
+    &:empty { display: none; }
+
+    span {
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 800;
+    }
+
+    .estado-no-interesa { background: #fff7ed; color: #9a3412; }
+    .estado-cotizado { background: #eef2ff; color: #4338ca; }
+    .estado-afiliado { background: #dcfce7; color: #166534; }
+}
+
+.primer-contacto-card-actions {
+    justify-content: flex-end;
+
+    button { min-width: 112px; }
+}
+
+.primer-contacto-card .primer-contacto-card-actions button {
+    min-width: 96px;
+    min-height: 34px;
+    height: 34px;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+.primer-contacto-alerta-bloqueo {
+    display: grid;
+    gap: 2px;
+    padding: 11px 13px;
+    border: 1px solid #ef4444;
+    border-radius: 10px;
+    background: #fef2f2;
+    color: #991b1b;
+
+    strong { font-size: 13px; letter-spacing: 0.04em; }
+    span { font-size: 12px; }
+}
+
+.primer-contacto-card > .primer-contacto-alerta-bloqueo {
+    padding: 8px 10px;
+
+    strong { font-size: 11px; }
+    span { font-size: 11px; }
+}
+
+.primer-contacto-contactabilidad-badges {
+    display: flex;
+    gap: 7px;
+    flex-wrap: wrap;
+
+    span {
+        padding: 5px 9px;
+        border-radius: 999px;
+        background: #f1f5f9;
+        color: #475569;
+        font-size: 12px;
+        font-weight: 800;
+    }
+
+    .estado-no-interesa { background: #fff7ed; color: #9a3412; }
+    .estado-afiliado { background: #dcfce7; color: #166534; }
+}
+
+.primer-contacto-cotizaciones-info {
+    display: grid;
+    gap: 5px;
+    padding: 11px;
+    border-radius: 10px;
+    background: #f4f7ff;
+    color: #334155;
+    font-size: 12px;
+
+    ul { margin: 2px 0 0; padding-left: 18px; }
+}
+
+.primer-contacto-card-actions .danger-btn { background: #b91c1c; }
+
+.primer-contacto-card-actions .danger-outline-btn {
+    border: 1px solid #dc2626;
+    background: #fff;
+    color: #b91c1c;
 }
 
 #usuarioSelect + .select-personalizado-trigger {
@@ -5008,5 +5316,38 @@ button:hover {
     .cotizacion-modal-body .pdf-download-menu,
     .cotizacion-modal-body .pdf-download-button {
         width: 100%;
+    }
+}
+
+@media (max-width: 640px) {
+    .container.primer-contacto-page {
+        width: calc(100% - 40px);
+    }
+
+    .primer-contacto-resumen-grid {
+        flex-wrap: wrap;
+        overflow: visible;
+    }
+
+    .primer-contacto-card-datos {
+        grid-template-columns: 1fr;
+        gap: 7px;
+    }
+
+    .primer-contacto-resumen .primer-contacto-card-actions button {
+        min-height: 42px;
+        height: 42px;
+    }
+
+    .primer-contacto-resumen .primer-contacto-card-actions .primer-contacto-accion-principal {
+        width: 100%;
+        min-height: 44px;
+        height: 44px;
+        margin-left: 0;
+    }
+
+    .primer-contacto-card .primer-contacto-card-actions button {
+        min-height: 42px;
+        height: 42px;
     }
 }

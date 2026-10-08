@@ -12,3 +12,4 @@ database.db
 
 public/uploads/
 backups/
+tmp/

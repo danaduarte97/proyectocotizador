@@ -413,7 +413,7 @@ async function main() {
             cliente_id: clienteB
         })
     });
-    assert.strictEqual(ownTask.status, 200);
+    assert.strictEqual(ownTask.status, 200, JSON.stringify(ownTask.body));
 
     const foreignTask = await request("/tareas", sellerToken, {
         method: "POST",

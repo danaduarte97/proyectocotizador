@@ -63,13 +63,13 @@
                     <span>Inicio</span>
                 </button>
 
-                <button onclick="abrirCotizadorManual()">
-                    <img class="icono-menu" src="img/imgicon-cotizador.png" alt="">
-                    <span>Cotizador</span></button>
                 <button onclick="mostrarSeccion('primerContacto')">
                     <img class="icono-menu" src="img/icono-whatsapp.svg" alt="">
                     <span>Primer contacto</span>
                 </button>
+                <button onclick="abrirCotizadorManual()">
+                    <img class="icono-menu" src="img/imgicon-cotizador.png" alt="">
+                    <span>Cotizador</span></button>
                 <button onclick="mostrarSeccion('misCotizaciones')">
                     <img class="icono-menu" src="img/imgicon-busqueda.png" alt="">
                     <span>Cotizaciones</span>
@@ -370,9 +370,7 @@
                 <div class="container primer-contacto-page">
                     <header class="primer-contacto-header">
                         <div>
-                            <span class="primer-contacto-eyebrow">Gesti&oacute;n comercial</span>
                             <h2>Primer contacto</h2>
-                            <p>Registr&aacute; cada intento sin crear todav&iacute;a una cotizaci&oacute;n.</p>
                         </div>
                         <div class="primer-contacto-actions">
                             <button type="button" onclick="abrirNuevoPrimerContacto()">
@@ -386,6 +384,13 @@
                             </button>
                         </div>
                     </header>
+
+                    <section class="primer-contacto-resumen-panel" aria-labelledby="primerContactoResumenTitulo">
+                        <div class="primer-contacto-resumen-heading">
+                            <h3 id="primerContactoResumenTitulo">Resumen por procedencia</h3>
+                        </div>
+                        <div id="primerContactoResumen" class="primer-contacto-resumen-grid" aria-live="polite"></div>
+                    </section>
 
                     <div class="primer-contacto-toolbar">
                         <form class="primer-contacto-search" onsubmit="buscarPrimerContacto(event)"
@@ -403,10 +408,19 @@
                             <input type="date" id="primerContactoFecha" onchange="cargarPrimerosContactos()">
                         </label>
 
+                        <label class="primer-contacto-filtro-procedencia">
+                            <span>Procedencia</span>
+                            <select id="primerContactoProcedenciaFiltro" data-select-personalizado
+                                aria-label="Filtrar por procedencia" onchange="cargarPrimerosContactos()">
+                                <option value="">Todas</option>
+                            </select>
+                        </label>
+
                         <div id="primerContactoVistaGrupo" class="primer-contacto-vista">
                             <span>Vista</span>
                             <div>
-                                <select id="primerContactoVista" onchange="cargarPrimerosContactos()"
+                                <select id="primerContactoVista" data-select-personalizado
+                                    onchange="cargarPrimerosContactos()"
                                     aria-label="Vista de contactos">
                                     <option value="mis">Mis contactos</option>
                                 </select>
@@ -975,12 +989,11 @@
                         oninput="reiniciarAnalisisPrimerContactoIndividual()">
                 </label>
                 <label>
-                    Nombre <small>(opcional)</small>
-                    <input type="text" id="primerContactoNombre" maxlength="120">
-                </label>
-                <label>
-                    Comentario inicial <small>(opcional)</small>
-                    <textarea id="primerContactoObservacion" rows="4" maxlength="1000"></textarea>
+                    Procedencia <strong aria-hidden="true">*</strong>
+                    <select id="primerContactoProcedencia" data-select-personalizado
+                        aria-label="Procedencia del nuevo contacto" required>
+                        <option value="">Seleccionar procedencia</option>
+                    </select>
                 </label>
 
                 <div id="primerContactoAnalisisIndividual" class="primer-contacto-analisis" hidden></div>
@@ -1012,7 +1025,14 @@
 
             <div class="primer-contacto-multiple-body">
                 <label>
-                    Peg&aacute; hasta 30 n&uacute;meros, uno por l&iacute;nea
+                    Procedencia para toda la carga
+                    <select id="primerContactoProcedenciaMultiple" data-select-personalizado
+                        aria-label="Procedencia para toda la carga" required>
+                        <option value="">Seleccionar procedencia</option>
+                    </select>
+                </label>
+                <label>
+                    Peg&aacute; hasta 50 n&uacute;meros, uno por l&iacute;nea
                     <textarea id="primerContactoNumerosMultiples" rows="8"
                         placeholder="11 1234-5678&#10;11 2345-6789"></textarea>
                 </label>
@@ -1034,6 +1054,38 @@
                     Confirmar seleccionados
                 </button>
             </footer>
+        </section>
+    </div>
+
+    <!-- MODAL EDITAR PRIMER CONTACTO -->
+    <div id="primerContactoEditarModal" class="primer-contacto-modal-overlay" hidden
+        onclick="if (event.target === this) cerrarEditarPrimerContacto()">
+        <section class="primer-contacto-modal" role="dialog" aria-modal="true"
+            aria-labelledby="primerContactoEditarTitulo">
+            <header>
+                <div>
+                    <span>Primer contacto</span>
+                    <h2 id="primerContactoEditarTitulo">Completar procedencia</h2>
+                </div>
+                <button type="button" aria-label="Cerrar" onclick="cerrarEditarPrimerContacto()">&times;</button>
+            </header>
+            <form onsubmit="guardarEdicionPrimerContacto(event)">
+                <input type="hidden" id="primerContactoEditarId">
+                <p id="primerContactoEditarTelefono"></p>
+                <label>
+                    Procedencia
+                    <select id="primerContactoEditarProcedencia" data-select-personalizado
+                        aria-label="Completar procedencia" required>
+                        <option value="">Seleccionar procedencia</option>
+                    </select>
+                </label>
+                <div class="primer-contacto-modal-actions">
+                    <button type="button" class="secondary-btn" onclick="cerrarEditarPrimerContacto()">
+                        Cancelar
+                    </button>
+                    <button type="submit">Guardar</button>
+                </div>
+            </form>
         </section>
     </div>
 

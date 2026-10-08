@@ -198,6 +198,22 @@ const ESTADOS_TAREA_CRM = [
     "cancelada"
 ];
 
+const CODIGOS_PROCEDENCIA_SELECCIONABLES = [
+    "base",
+    "base_clinica",
+    "publicidad_oficial",
+    "publicidad_estacion",
+    "calle",
+    "oficina",
+    "micaela_calle",
+    "referido"
+];
+
+const MARCAS_CONTACTABILIDAD = [
+    "no_interesa",
+    "no_enviar_mensajes"
+];
+
 const ESTADOS_AFILIADO_LEGACY = [
     String.fromCharCode(0x41, 0x62, 0x6f, 0x6e, 0xf3),
     String.fromCharCode(0x41, 0x62, 0x6f, 0x6e, 0xc3, 0xb3),
@@ -418,7 +434,7 @@ async function obtenerUsuarioPorNombre(nombreUsuario, tx = null) {
 
     return store.get(
         `
-        SELECT id, TRIM(usuario) AS usuario
+        SELECT id, TRIM(usuario) AS usuario, rol
         FROM usuarios
         WHERE LOWER(TRIM(usuario)) = LOWER(TRIM(?))
         LIMIT 1
@@ -1265,16 +1281,58 @@ db.serialize(() => {
     ON cotizaciones (etapa_pipeline, vendedora)
 `, () => { });
     db.run(`
+    CREATE TABLE IF NOT EXISTS procedencias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        codigo TEXT NOT NULL UNIQUE,
+        nombre TEXT NOT NULL UNIQUE,
+        seleccionable INTEGER NOT NULL DEFAULT 1,
+        activa INTEGER NOT NULL DEFAULT 1,
+        orden INTEGER NOT NULL,
+        fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    `);
+    [
+        ["base", "Base", 1, 1],
+        ["base_clinica", "Base Clínica", 1, 2],
+        ["publicidad_oficial", "Publicidad oficial", 1, 3],
+        ["publicidad_estacion", "Publicidad Estación", 1, 4],
+        ["calle", "Calle", 1, 5],
+        ["oficina", "Oficina", 1, 6],
+        ["micaela_calle", "Micaela calle", 1, 7],
+        ["referido", "Referido", 1, 8],
+        ["sin_informar", "Sin informar", 0, 99]
+    ].forEach(([codigo, nombre, seleccionable, orden]) => {
+        db.run(
+            `INSERT OR IGNORE INTO procedencias
+             (codigo, nombre, seleccionable, activa, orden)
+             VALUES (?, ?, ?, 1, ?)`,
+            [codigo, nombre, seleccionable, orden]
+        );
+    });
+    db.run(`
     CREATE TABLE IF NOT EXISTS primer_contacto_identidades (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         telefono_original TEXT NOT NULL,
         telefono_normalizado TEXT NOT NULL UNIQUE,
         cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
         nombre TEXT,
+        procedencia_id INTEGER REFERENCES procedencias(id) ON DELETE RESTRICT,
+        no_interesa INTEGER NOT NULL DEFAULT 0,
+        no_enviar_mensajes INTEGER NOT NULL DEFAULT 0,
         fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
         fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP
     )
 `, () => { });
+    db.run(`ALTER TABLE primer_contacto_identidades ADD COLUMN procedencia_id INTEGER`, () => { });
+    db.run(`ALTER TABLE primer_contacto_identidades ADD COLUMN no_interesa INTEGER NOT NULL DEFAULT 0`, () => { });
+    db.run(`ALTER TABLE primer_contacto_identidades ADD COLUMN no_enviar_mensajes INTEGER NOT NULL DEFAULT 0`, () => { });
+    db.run(`
+        UPDATE primer_contacto_identidades
+        SET procedencia_id = (
+            SELECT id FROM procedencias WHERE codigo = 'sin_informar'
+        )
+        WHERE procedencia_id IS NULL
+    `, () => { });
     db.run(`
     CREATE TABLE IF NOT EXISTS primer_contacto_gestiones (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1289,9 +1347,45 @@ db.serialize(() => {
     )
 `, () => { });
     db.run(`
+    CREATE TABLE IF NOT EXISTS primer_contacto_procedencia_historial (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contacto_id INTEGER NOT NULL REFERENCES primer_contacto_identidades(id) ON DELETE CASCADE,
+        procedencia_anterior_id INTEGER REFERENCES procedencias(id) ON DELETE RESTRICT,
+        procedencia_nueva_id INTEGER NOT NULL REFERENCES procedencias(id) ON DELETE RESTRICT,
+        accion TEXT NOT NULL,
+        usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+        usuario TEXT NOT NULL,
+        motivo TEXT,
+        clave_idempotencia TEXT NOT NULL UNIQUE,
+        fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, () => { });
+    db.run(`
+    CREATE TABLE IF NOT EXISTS primer_contacto_contactabilidad_historial (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contacto_id INTEGER NOT NULL REFERENCES primer_contacto_identidades(id) ON DELETE CASCADE,
+        marca TEXT NOT NULL,
+        valor_anterior INTEGER NOT NULL,
+        valor_nuevo INTEGER NOT NULL,
+        usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+        usuario TEXT NOT NULL,
+        motivo TEXT,
+        clave_idempotencia TEXT NOT NULL UNIQUE,
+        fecha DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, () => { });
+    db.run(`
     CREATE INDEX IF NOT EXISTS idx_primer_contacto_cliente
     ON primer_contacto_identidades (cliente_id)
 `, () => { });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_primer_contacto_identidades_procedencia
+            ON primer_contacto_identidades (procedencia_id)`, () => { });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_pc_gestiones_asesora_contacto
+            ON primer_contacto_gestiones (asesora, contacto_id, fecha DESC)`, () => { });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_pc_procedencia_historial_contacto_fecha
+            ON primer_contacto_procedencia_historial (contacto_id, fecha DESC)`, () => { });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_pc_contactabilidad_historial_contacto_fecha
+            ON primer_contacto_contactabilidad_historial (contacto_id, fecha DESC)`, () => { });
     db.run(`
     CREATE INDEX IF NOT EXISTS idx_primer_contacto_gestiones_contacto_fecha
     ON primer_contacto_gestiones (contacto_id, fecha DESC)
@@ -2059,7 +2153,7 @@ function errorHttp(status, message) {
     return error;
 }
 
-const MAX_PRIMER_CONTACTO_TANDA = 30;
+const MAX_PRIMER_CONTACTO_TANDA = 50;
 
 function textoOpcionalPrimerContacto(valor, maximo) {
     const texto = String(valor || "").trim();
@@ -2170,6 +2264,37 @@ function buscarContextoCrmPrimerContacto(telefonoNormalizado, contextoCrm) {
     };
 }
 
+function resumirCotizacionesPrimerContacto(cotizaciones = []) {
+    const cantidadesPorAsesora = new Map();
+
+    cotizaciones.forEach(cotizacion => {
+        const asesora = String(cotizacion.vendedora || "").trim() || "Sin asesora";
+        cantidadesPorAsesora.set(
+            asesora,
+            (cantidadesPorAsesora.get(asesora) || 0) + 1
+        );
+    });
+
+    const cotizacionesPorAsesora = [...cantidadesPorAsesora.entries()]
+        .map(([asesora, cantidad]) => ({ asesora, cantidad }))
+        .sort((a, b) =>
+            b.cantidad - a.cantidad
+            || a.asesora.localeCompare(b.asesora, "es")
+        );
+
+    return {
+        cotizado: cotizaciones.length > 0,
+        cantidad_cotizaciones_crm: cotizaciones.length,
+        asesoras_cotizaciones: cotizacionesPorAsesora
+            .filter(item => item.asesora !== "Sin asesora")
+            .map(item => item.asesora),
+        cotizaciones_por_asesora: cotizacionesPorAsesora,
+        afiliado: cotizaciones.some(cotizacion =>
+            normalizarEstadoCotizacion(cotizacion.estado) === "Afiliado"
+        )
+    };
+}
+
 async function buscarIdentidadPrimerContacto(telefonoNormalizado, tx = null) {
     const store = storePrimerContacto(tx);
     const exacta = await store.get(
@@ -2214,6 +2339,17 @@ async function analizarTelefonoPrimerContacto(
             seleccion_recomendada: false,
             asesoras: [],
             historial: [],
+            historial_procedencia: [],
+            historial_contactabilidad: [],
+            procedencia: null,
+            no_interesa: false,
+            no_enviar_mensajes: false,
+            cotizado: false,
+            afiliado: false,
+            cantidad_cotizaciones_crm: 0,
+            asesoras_cotizaciones: [],
+            cotizaciones_por_asesora: [],
+            cotizaciones: [],
             cliente: null,
             existe_en_crm: false,
             ultima_cotizacion_crm: null
@@ -2244,8 +2380,15 @@ async function analizarTelefonoPrimerContacto(
             [identidad.id]
         )
         : [];
+    const detalleIdentidad = await cargarDetalleIdentidadPrimerContacto(
+        identidad,
+        tx
+    );
     const propios = historial.filter(gestion => gestion.asesora === asesora);
     const asesoras = [...new Set(historial.map(gestion => gestion.asesora))];
+    const resumenCotizaciones = resumirCotizacionesPrimerContacto(
+        coincidenciaCrm.cotizaciones
+    );
     const estado = propios.length
         ? "contactado_por_mi"
         : historial.length
@@ -2263,11 +2406,21 @@ async function analizarTelefonoPrimerContacto(
         ya_contactado_por_mi: propios.length > 0,
         ultimo_contacto: historial[0]?.fecha || null,
         ultimo_contacto_propio: propios[0]?.fecha || null,
-        seleccion_recomendada: estado !== "contactado_por_mi",
+        seleccion_recomendada:
+            !identidad
+            && !detalleIdentidad.no_enviar_mensajes,
         asesoras,
         historial,
+        ...detalleIdentidad,
         existe_en_crm: Boolean(cliente || coincidenciaCrm.cotizaciones.length),
-        cantidad_cotizaciones_crm: coincidenciaCrm.cotizaciones.length,
+        ...resumenCotizaciones,
+        cotizaciones: coincidenciaCrm.cotizaciones.map(cotizacion => ({
+            id: cotizacion.id,
+            asesora: cotizacion.vendedora,
+            fecha: cotizacion.fecha,
+            estado: cotizacion.estado,
+            etapa_pipeline: cotizacion.etapa_pipeline
+        })),
         ultima_cotizacion_crm: cotizacionReferencia?.fecha
             ? { fecha: cotizacionReferencia.fecha }
             : null,
@@ -2343,7 +2496,8 @@ async function obtenerOCrearIdentidadPrimerContacto(
     datos,
     cliente,
     nombre,
-    contactoId = null
+    contactoId = null,
+    procedencia = null
 ) {
     const clienteId = cliente?.id || null;
 
@@ -2373,9 +2527,10 @@ async function obtenerOCrearIdentidadPrimerContacto(
                 telefono_original,
                 telefono_normalizado,
                 cliente_id,
-                nombre
+                nombre,
+                procedencia_id
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT (telefono_normalizado) DO UPDATE
             SET
                 cliente_id = COALESCE(
@@ -2393,7 +2548,8 @@ async function obtenerOCrearIdentidadPrimerContacto(
                 datos.telefono_original,
                 datos.telefono_normalizado,
                 clienteId,
-                nombre
+                nombre,
+                procedencia?.id || null
             ]
         );
     }
@@ -2404,15 +2560,17 @@ async function obtenerOCrearIdentidadPrimerContacto(
             telefono_original,
             telefono_normalizado,
             cliente_id,
-            nombre
+            nombre,
+            procedencia_id
         )
-        VALUES (?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?)
         `,
         [
             datos.telefono_original,
             datos.telefono_normalizado,
             clienteId,
-            nombre
+            nombre,
+            procedencia?.id || null
         ]
     );
     await tx.run(
@@ -2444,6 +2602,7 @@ async function registrarGestionPrimerContacto(
         telefono,
         nombre,
         observacion,
+        procedencia_codigo,
         confirmar_repetido = false,
         clave_idempotencia
     },
@@ -2501,6 +2660,20 @@ async function registrarGestionPrimerContacto(
         contextoCrm
     );
 
+    if (analisis.no_enviar_mensajes) {
+        throw errorHttp(
+            409,
+            "NO ENVIAR MENSAJES: este teléfono tiene una restricción activa"
+        );
+    }
+
+    const procedencia = analisis.contacto_id
+        ? await obtenerProcedenciaPorCodigo(
+            analisis.procedencia?.codigo || "sin_informar",
+            tx
+        )
+        : await requerirProcedenciaSeleccionable(procedencia_codigo, tx);
+
     if (analisis.ya_contactado_por_mi && !confirmar_repetido) {
         throw errorHttp(
             409,
@@ -2513,9 +2686,36 @@ async function registrarGestionPrimerContacto(
         datosTelefono,
         analisis.cliente,
         nombreLimpio,
-        analisis.contacto_id
+        analisis.contacto_id,
+        procedencia
     );
     const usuario = await obtenerUsuarioPorNombre(req.user.usuario, tx);
+
+    if (!analisis.contacto_id) {
+        await tx.run(
+            `
+            INSERT INTO primer_contacto_procedencia_historial (
+                contacto_id,
+                procedencia_anterior_id,
+                procedencia_nueva_id,
+                accion,
+                usuario_id,
+                usuario,
+                motivo,
+                clave_idempotencia
+            )
+            VALUES (?, NULL, ?, 'asignacion_inicial', ?, ?, NULL, ?)
+            ON CONFLICT (clave_idempotencia) DO NOTHING
+            `,
+            [
+                identidad.id,
+                identidad.procedencia_id,
+                usuario?.id || null,
+                req.user.usuario,
+                `procedencia-inicial:${identidad.id}`
+            ]
+        );
+    }
     let gestionId = null;
     let creada = false;
 
@@ -3076,6 +3276,111 @@ function validarImporteCotizacion(valor, etiqueta) {
     return texto;
 }
 
+function booleanoBase(valor) {
+    return valor === true || valor === 1 || valor === "1";
+}
+
+async function obtenerProcedenciaPorCodigo(
+    codigo,
+    tx = null,
+    { seleccionable = false } = {}
+) {
+    const valor = String(codigo || "").trim();
+    if (!valor) return null;
+
+    const store = storePrimerContacto(tx);
+    return store.get(
+        `
+        SELECT id, codigo, nombre, seleccionable, activa, orden
+        FROM procedencias
+        WHERE codigo = ?
+          AND activa = TRUE
+          ${seleccionable ? "AND seleccionable = TRUE" : ""}
+        LIMIT 1
+        `,
+        [valor]
+    );
+}
+
+async function requerirProcedenciaSeleccionable(codigo, tx = null) {
+    if (!CODIGOS_PROCEDENCIA_SELECCIONABLES.includes(String(codigo || ""))) {
+        throw errorHttp(400, "Seleccioná una procedencia válida");
+    }
+
+    const procedencia = await obtenerProcedenciaPorCodigo(
+        codigo,
+        tx,
+        { seleccionable: true }
+    );
+    if (!procedencia) {
+        throw errorHttp(400, "La procedencia no está disponible");
+    }
+
+    return procedencia;
+}
+
+async function cargarDetalleIdentidadPrimerContacto(identidad, tx = null) {
+    if (!identidad) {
+        return {
+            procedencia: null,
+            no_interesa: false,
+            no_enviar_mensajes: false,
+            historial_procedencia: [],
+            historial_contactabilidad: []
+        };
+    }
+
+    const store = storePrimerContacto(tx);
+    const procedencia = identidad.procedencia_id
+        ? await store.get(
+            `SELECT id, codigo, nombre, seleccionable
+             FROM procedencias WHERE id = ?`,
+            [identidad.procedencia_id]
+        )
+        : null;
+    const historialProcedencia = await store.all(
+        `
+        SELECT
+            historial.id,
+            historial.accion,
+            historial.usuario,
+            historial.motivo,
+            historial.fecha,
+            anterior.nombre AS procedencia_anterior,
+            nueva.nombre AS procedencia_nueva
+        FROM primer_contacto_procedencia_historial historial
+        LEFT JOIN procedencias anterior
+            ON anterior.id = historial.procedencia_anterior_id
+        JOIN procedencias nueva
+            ON nueva.id = historial.procedencia_nueva_id
+        WHERE historial.contacto_id = ?
+        ORDER BY historial.fecha DESC, historial.id DESC
+        `,
+        [identidad.id]
+    );
+    const historialContactabilidad = await store.all(
+        `
+        SELECT id, marca, valor_anterior, valor_nuevo, usuario, motivo, fecha
+        FROM primer_contacto_contactabilidad_historial
+        WHERE contacto_id = ?
+        ORDER BY fecha DESC, id DESC
+        `,
+        [identidad.id]
+    );
+
+    return {
+        procedencia,
+        no_interesa: booleanoBase(identidad.no_interesa),
+        no_enviar_mensajes: booleanoBase(identidad.no_enviar_mensajes),
+        historial_procedencia: historialProcedencia,
+        historial_contactabilidad: historialContactabilidad.map(item => ({
+            ...item,
+            valor_anterior: booleanoBase(item.valor_anterior),
+            valor_nuevo: booleanoBase(item.valor_nuevo)
+        }))
+    };
+}
+
 app.put("/cotizaciones/:id/importes", verificarToken, async (req, res) => {
     try {
         const opciones = Array.isArray(req.body.opciones)
@@ -3177,6 +3482,262 @@ app.delete("/cotizaciones/:id", verificarToken, async (req, res) => {
     }
 });
 
+app.get("/primer-contacto/procedencias", verificarToken, async (req, res) => {
+    try {
+        const incluirHistorica = req.query.incluir_historica === "1";
+        const rows = await dbAllAsync(
+            `
+            SELECT id, codigo, nombre, seleccionable, orden
+            FROM procedencias
+            WHERE activa = TRUE
+              ${incluirHistorica ? "" : "AND seleccionable = TRUE"}
+            ORDER BY orden ASC, id ASC
+            `
+        );
+
+        res.json(rows.map(row => ({
+            ...row,
+            seleccionable: booleanoBase(row.seleccionable)
+        })));
+    } catch (error) {
+        res.status(500).json({ error: "No se pudieron cargar las procedencias" });
+    }
+});
+
+app.get("/primer-contacto/resumen", verificarToken, async (req, res) => {
+    const condicionesGestion = ["resumen_gestiones.contacto_id = identidades.id"];
+    const parametros = [];
+    const asesora = String(req.query.asesora || "").trim();
+    const procedencia = String(req.query.procedencia || "").trim();
+    const fechaDesde = String(req.query.fecha_desde || "").trim();
+    const fechaHasta = String(req.query.fecha_hasta || "").trim();
+
+    if (req.user.rol !== "admin" || req.query.vista === "mis") {
+        condicionesGestion.push("resumen_gestiones.asesora = ?");
+        parametros.push(req.user.usuario);
+    } else if (asesora) {
+        condicionesGestion.push("resumen_gestiones.asesora = ?");
+        parametros.push(asesora);
+    }
+
+    for (const [valor, operador, sufijo] of [
+        [fechaDesde, ">=", " 00:00:00"],
+        [fechaHasta, "<=", " 23:59:59.999"]
+    ]) {
+        if (!valor) continue;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+            return res.status(400).json({ error: "Fecha inválida" });
+        }
+        condicionesGestion.push(`resumen_gestiones.fecha ${operador} ?`);
+        parametros.push(`${valor}${sufijo}`);
+    }
+
+    const condicionProcedencia = procedencia
+        ? "AND procedencias.codigo = ?"
+        : "";
+    if (procedencia) parametros.push(procedencia);
+
+    try {
+        const rows = await dbAllAsync(
+            `
+            SELECT
+                procedencias.codigo,
+                procedencias.nombre,
+                procedencias.seleccionable,
+                procedencias.orden,
+                COUNT(DISTINCT identidades.id) AS cantidad
+            FROM procedencias
+            LEFT JOIN primer_contacto_identidades identidades
+                ON identidades.procedencia_id = procedencias.id
+               AND EXISTS (
+                    SELECT 1
+                    FROM primer_contacto_gestiones resumen_gestiones
+                    WHERE ${condicionesGestion.join(" AND ")}
+               )
+            WHERE procedencias.activa = TRUE
+              ${condicionProcedencia}
+            GROUP BY
+                procedencias.id,
+                procedencias.codigo,
+                procedencias.nombre,
+                procedencias.seleccionable,
+                procedencias.orden
+            ORDER BY procedencias.orden ASC, procedencias.id ASC
+            `,
+            parametros
+        );
+        const procedencias = rows
+            .map(row => ({
+                codigo: row.codigo,
+                nombre: row.nombre,
+                seleccionable: booleanoBase(row.seleccionable),
+                cantidad: Number(row.cantidad || 0)
+            }))
+            .filter(item => item.codigo !== "sin_informar" || item.cantidad > 0);
+
+        res.json({
+            total: procedencias.reduce((total, item) => total + item.cantidad, 0),
+            procedencias
+        });
+    } catch (error) {
+        res.status(500).json({ error: "No se pudo cargar el resumen" });
+    }
+});
+
+app.put("/primer-contacto/:id/procedencia", verificarToken, async (req, res) => {
+    if (!/^\d+$/.test(String(req.params.id))) {
+        return res.status(400).json({ error: "Contacto inválido" });
+    }
+
+    try {
+        const resultado = await db.transaction(async tx => {
+            const nueva = await requerirProcedenciaSeleccionable(
+                req.body.procedencia_codigo,
+                tx
+            );
+            const identidad = await tx.get(
+                `
+                SELECT identidades.*, procedencias.codigo AS procedencia_codigo
+                FROM primer_contacto_identidades identidades
+                JOIN procedencias ON procedencias.id = identidades.procedencia_id
+                WHERE identidades.id = ?
+                `,
+                [req.params.id]
+            );
+            if (!identidad) throw errorHttp(404, "Contacto no encontrado");
+            if (String(identidad.procedencia_id) === String(nueva.id)) {
+                return { actualizada: false, procedencia: nueva };
+            }
+            if (identidad.procedencia_codigo !== "sin_informar") {
+                throw errorHttp(
+                    409,
+                    "La procedencia original no puede reemplazarse desde Primer Contacto"
+                );
+            }
+
+            const usuario = await obtenerUsuarioPorNombre(req.user.usuario, tx);
+            await tx.run(
+                `UPDATE primer_contacto_identidades
+                 SET procedencia_id = ?, fecha_actualizacion = CURRENT_TIMESTAMP
+                 WHERE id = ?`,
+                [nueva.id, identidad.id]
+            );
+            await tx.run(
+                `
+                INSERT INTO primer_contacto_procedencia_historial (
+                    contacto_id, procedencia_anterior_id, procedencia_nueva_id,
+                    accion, usuario_id, usuario, motivo, clave_idempotencia
+                )
+                VALUES (?, ?, ?, 'completado', ?, ?, NULL, ?)
+                ON CONFLICT (clave_idempotencia) DO NOTHING
+                `,
+                [
+                    identidad.id,
+                    identidad.procedencia_id,
+                    nueva.id,
+                    usuario?.id || null,
+                    req.user.usuario,
+                    `procedencia-completada:${identidad.id}`
+                ]
+            );
+
+            return { actualizada: true, procedencia: nueva };
+        });
+
+        res.json({ success: true, ...resultado });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo actualizar la procedencia"
+        });
+    }
+});
+
+app.put("/primer-contacto/:id/contactabilidad", verificarToken, async (req, res) => {
+    if (!/^\d+$/.test(String(req.params.id))) {
+        return res.status(400).json({ error: "Contacto inválido" });
+    }
+
+    const marca = String(req.body.marca || "").trim();
+    const valor = req.body.valor;
+    if (!MARCAS_CONTACTABILIDAD.includes(marca) || typeof valor !== "boolean") {
+        return res.status(400).json({ error: "Cambio de contactabilidad inválido" });
+    }
+    if (marca === "no_enviar_mensajes" && !valor && req.user.rol !== "admin") {
+        return res.status(403).json({
+            error: "Sólo Administración puede retirar No enviar mensajes"
+        });
+    }
+    if (
+        marca === "no_enviar_mensajes"
+        && !valor
+        && req.body.confirmar_retiro !== true
+    ) {
+        return res.status(400).json({
+            error: "Debés confirmar expresamente el retiro de la restricción"
+        });
+    }
+
+    try {
+        const motivo = textoOpcionalPrimerContacto(req.body.motivo, 500);
+        if (marca === "no_enviar_mensajes" && !valor && !motivo) {
+            throw errorHttp(400, "El motivo es obligatorio");
+        }
+        const clave = validarClavePrimerContacto(req.body.clave_idempotencia);
+        const resultado = await db.transaction(async tx => {
+            const previo = await tx.get(
+                `SELECT id FROM primer_contacto_contactabilidad_historial
+                 WHERE clave_idempotencia = ?`,
+                [clave]
+            );
+            const identidad = await tx.get(
+                "SELECT * FROM primer_contacto_identidades WHERE id = ?",
+                [req.params.id]
+            );
+            if (!identidad) throw errorHttp(404, "Contacto no encontrado");
+
+            const anterior = booleanoBase(identidad[marca]);
+            if (previo || anterior === valor) {
+                return { actualizada: false, marca, valor: anterior };
+            }
+
+            const usuario = await obtenerUsuarioPorNombre(req.user.usuario, tx);
+            await tx.run(
+                `UPDATE primer_contacto_identidades
+                 SET ${marca} = ?, fecha_actualizacion = CURRENT_TIMESTAMP
+                 WHERE id = ?`,
+                [valor, identidad.id]
+            );
+            await tx.run(
+                `
+                INSERT INTO primer_contacto_contactabilidad_historial (
+                    contacto_id, marca, valor_anterior, valor_nuevo,
+                    usuario_id, usuario, motivo, clave_idempotencia
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `,
+                [
+                    identidad.id,
+                    marca,
+                    anterior,
+                    valor,
+                    usuario?.id || null,
+                    req.user.usuario,
+                    motivo,
+                    clave
+                ]
+            );
+
+            return { actualizada: true, marca, valor };
+        });
+
+        res.json({ success: true, ...resultado });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo actualizar la contactabilidad"
+        });
+    }
+});
+
 app.get("/primer-contacto", verificarToken, async (req, res) => {
     const condiciones = [];
     const parametros = [];
@@ -3185,6 +3746,7 @@ app.get("/primer-contacto", verificarToken, async (req, res) => {
     const asesora = String(req.query.asesora || "").trim();
     const fechaDesde = String(req.query.fecha_desde || "").trim();
     const fechaHasta = String(req.query.fecha_hasta || "").trim();
+    const procedencia = String(req.query.procedencia || "").trim();
 
     if (req.user.rol !== "admin" || vista === "mis") {
         condiciones.push("gestiones.asesora = ?");
@@ -3223,6 +3785,11 @@ app.get("/primer-contacto", verificarToken, async (req, res) => {
         parametros.push(`${fechaHasta} 23:59:59.999`);
     }
 
+    if (procedencia) {
+        condiciones.push("procedencias.codigo = ?");
+        parametros.push(procedencia);
+    }
+
     try {
         const gestiones = await dbAllAsync(
             `
@@ -3236,6 +3803,11 @@ app.get("/primer-contacto", verificarToken, async (req, res) => {
                 identidades.telefono_original,
                 identidades.telefono_normalizado,
                 identidades.cliente_id,
+                identidades.procedencia_id,
+                identidades.no_interesa,
+                identidades.no_enviar_mensajes,
+                procedencias.codigo AS procedencia_codigo,
+                procedencias.nombre AS procedencia_nombre,
                 COALESCE(clientes.nombre, identidades.nombre) AS nombre,
                 clientes.dni AS cliente_dni,
                 (
@@ -3251,6 +3823,8 @@ app.get("/primer-contacto", verificarToken, async (req, res) => {
             FROM primer_contacto_gestiones gestiones
             JOIN primer_contacto_identidades identidades
                 ON identidades.id = gestiones.contacto_id
+            JOIN procedencias
+                ON procedencias.id = identidades.procedencia_id
             LEFT JOIN clientes
                 ON clientes.id = identidades.cliente_id
             ${condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : ""}
@@ -3260,11 +3834,26 @@ app.get("/primer-contacto", verificarToken, async (req, res) => {
             parametros
         );
 
-        res.json(gestiones.map(gestion => ({
-            ...gestion,
-            cantidad_contactos: Number(gestion.cantidad_contactos || 0),
-            cantidad_cotizaciones: Number(gestion.cantidad_cotizaciones || 0)
-        })));
+        const contextoCrm = await cargarContextoTelefonosCrm();
+
+        res.json(gestiones.map(gestion => {
+            const coincidenciaCrm = buscarContextoCrmPrimerContacto(
+                gestion.telefono_normalizado,
+                contextoCrm
+            );
+            const resumenCotizaciones = resumirCotizacionesPrimerContacto(
+                coincidenciaCrm.cotizaciones
+            );
+
+            return {
+                ...gestion,
+                no_interesa: booleanoBase(gestion.no_interesa),
+                no_enviar_mensajes: booleanoBase(gestion.no_enviar_mensajes),
+                cantidad_contactos: Number(gestion.cantidad_contactos || 0),
+                cantidad_cotizaciones: resumenCotizaciones.cantidad_cotizaciones_crm,
+                ...resumenCotizaciones
+            };
+        }));
     } catch (error) {
         res.status(500).json({ error: "No se pudieron cargar los primeros contactos" });
     }
@@ -3306,9 +3895,10 @@ app.get("/primer-contacto/exportar-excel", verificarToken, async (req, res) => {
         const gestiones = await dbAllAsync(
             `
             SELECT
+                gestiones.id AS gestion_id,
+                gestiones.contacto_id,
                 gestiones.fecha,
                 gestiones.asesora,
-                gestiones.observacion,
                 identidades.nombre AS nombre_identidad,
                 identidades.telefono_original,
                 identidades.telefono_normalizado,
@@ -3338,7 +3928,6 @@ app.get("/primer-contacto/exportar-excel", verificarToken, async (req, res) => {
             "Nombre",
             "Tel\u00e9fono",
             "Tel\u00e9fono normalizado",
-            "Observaci\u00f3n",
             "Cliente vinculado",
             "Cliente ID",
             "Cotizaciones vinculadas"
@@ -3382,7 +3971,6 @@ app.get("/primer-contacto/exportar-excel", verificarToken, async (req, res) => {
                 gestion.nombre_cliente || gestion.nombre_identidad || "",
                 gestion.telefono_original || gestion.telefono_normalizado || "",
                 gestion.telefono_normalizado || "",
-                gestion.observacion || "",
                 clienteVinculado ? "S\u00ed" : "No",
                 clienteVinculado ? gestion.cliente_id : "",
                 Number(gestion.cantidad_cotizaciones || 0)
@@ -3404,7 +3992,7 @@ app.get("/primer-contacto/exportar-excel", verificarToken, async (req, res) => {
             to: { row: Math.max(1, worksheet.rowCount), column: headers.length }
         };
         worksheet.views = [{ state: "frozen", ySplit: 1 }];
-        [13, 9, 20, 26, 20, 22, 42, 19, 12, 24].forEach((width, index) => {
+        [13, 9, 20, 26, 20, 22, 19, 12, 24].forEach((width, index) => {
             worksheet.getColumn(index + 1).width = width;
         });
 
@@ -3443,6 +4031,9 @@ app.get("/primer-contacto/buscar", verificarToken, async (req, res) => {
 
 app.post("/primer-contacto/analizar-multiple", verificarToken, async (req, res) => {
     try {
+        const procedencia = req.body.procedencia_codigo
+            ? await requerirProcedenciaSeleccionable(req.body.procedencia_codigo)
+            : null;
         const resultados = await analizarTandaPrimerContacto(
             req.body.numeros,
             req.user.usuario
@@ -3451,6 +4042,7 @@ app.post("/primer-contacto/analizar-multiple", verificarToken, async (req, res) 
         res.json({
             limite: MAX_PRIMER_CONTACTO_TANDA,
             cantidad: resultados.length,
+            procedencia,
             resultados
         });
     } catch (error) {
@@ -3484,6 +4076,8 @@ app.post("/primer-contacto/confirmar-multiple", verificarToken, async (req, res)
             req.body.clave_operacion,
             "clave_operacion"
         );
+        const procedenciaCodigo = String(req.body.procedencia_codigo || "").trim();
+        await requerirProcedenciaSeleccionable(procedenciaCodigo);
 
         if (!items.length) {
             throw errorHttp(400, "Seleccioná al menos un número");
@@ -3512,6 +4106,7 @@ app.post("/primer-contacto/confirmar-multiple", verificarToken, async (req, res)
                 telefono: item.telefono,
                 nombre: item.nombre,
                 observacion: item.observacion,
+                procedencia_codigo: procedenciaCodigo,
                 confirmar_repetido: Boolean(item.confirmar_repetido),
                 clave_idempotencia:
                     `lote:${operacion}:${telefono.telefono_normalizado}`

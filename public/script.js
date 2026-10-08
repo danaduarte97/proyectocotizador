@@ -261,6 +261,28 @@ function formatearFechaArgentina(fecha) {
     });
 }
 
+function formatearFechaHoraPrimerContacto(fecha) {
+    if (!fecha) return "-";
+
+    const fechaParseada = new Date(fecha);
+    if (Number.isNaN(fechaParseada.getTime())) return String(fecha);
+
+    const partes = new Intl.DateTimeFormat("es-AR", {
+        timeZone: "America/Argentina/Buenos_Aires",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23"
+    }).formatToParts(fechaParseada).reduce((resultado, parte) => {
+        if (parte.type !== "literal") resultado[parte.type] = parte.value;
+        return resultado;
+    }, {});
+
+    return `${partes.day}/${partes.month}/${partes.year} - ${partes.hour}:${partes.minute}`;
+}
+
 let cotizacionModalTrigger = null;
 let cotizacionModalScrollVentana = 0;
 let cotizacionModalScrollPrincipal = 0;
@@ -1820,31 +1842,7 @@ function renderProximaTareaPipeline(cotizacionId) {
 
 function renderTelefonoWhatsappPipeline(celular) {
     const telefonoVisible = celular || "Sin tel&eacute;fono";
-    const telefonoWhatsapp = normalizarTelefonoWhatsappArgentina(celular);
-
-    if (!telefonoWhatsapp) {
-        return `<p class="pipeline-telefono">${telefonoVisible}</p>`;
-    }
-
-    return `
-        <p class="pipeline-telefono">
-            <a
-                class="pipeline-whatsapp-link"
-                href="https://wa.me/${telefonoWhatsapp}"
-                target="_blank"
-                rel="noopener noreferrer"
-                draggable="false"
-                data-no-drag
-                aria-label="Abrir ${telefonoVisible} en WhatsApp"
-                onclick="event.stopPropagation()"
-                onpointerdown="event.stopPropagation()"
-                ondragstart="event.preventDefault(); event.stopPropagation()"
-            >
-                <img src="img/icono-whatsapp.svg" alt="" aria-hidden="true">
-                <span>${telefonoVisible}</span>
-            </a>
-        </p>
-    `;
+    return `<p class="pipeline-telefono">${escaparHtml(telefonoVisible)}</p>`;
 }
 
 function renderPipelineCard(cotizacion) {
@@ -4507,6 +4505,69 @@ let primerContactoAnalisisMultipleEnCurso = false;
 let primerContactoConfirmacionMultipleEnCurso = false;
 const primerContactoDatosPorTelefono = new Map();
 const primerContactoAsesoras = new Set();
+let primerContactoProcedencias = [];
+
+function sincronizarSelectorPrimerContacto(selectOId) {
+    const select = typeof selectOId === "string"
+        ? document.getElementById(selectOId)
+        : selectOId;
+    if (select && typeof sincronizarSelectPersonalizado === "function") {
+        sincronizarSelectPersonalizado(select);
+    }
+}
+
+function opcionesProcedenciaPrimerContacto(valor = "") {
+    return `
+        <option value="">Seleccionar procedencia</option>
+        ${primerContactoProcedencias
+            .filter(item => item.seleccionable)
+            .map(item => `
+                <option value="${escaparHtml(item.codigo)}"
+                    ${item.codigo === valor ? "selected" : ""}>
+                    ${escaparHtml(item.nombre)}
+                </option>
+            `).join("")}
+    `;
+}
+
+async function cargarProcedenciasPrimerContacto() {
+    const res = await fetch("/primer-contacto/procedencias?incluir_historica=1", {
+        headers: authHeaders()
+    });
+    const datos = await res.json().catch(() => ([]));
+    if (await manejarError(res)) return;
+    if (!res.ok) throw new Error(datos.error || "No se pudieron cargar las procedencias");
+
+    primerContactoProcedencias = datos;
+    [
+        "primerContactoProcedencia",
+        "primerContactoProcedenciaMultiple",
+        "primerContactoEditarProcedencia"
+    ].forEach(id => {
+        const select = document.getElementById(id);
+        if (select) {
+            select.innerHTML = opcionesProcedenciaPrimerContacto();
+            sincronizarSelectorPrimerContacto(select);
+        }
+    });
+
+    const filtro = document.getElementById("primerContactoProcedenciaFiltro");
+    if (filtro) {
+        const valor = filtro.value;
+        filtro.innerHTML = `
+            <option value="">Todas</option>
+            ${datos.map(item => `
+                <option value="${escaparHtml(item.codigo)}">
+                    ${escaparHtml(item.nombre)}
+                </option>
+            `).join("")}
+        `;
+        filtro.value = [...filtro.options].some(option => option.value === valor)
+            ? valor
+            : "";
+        sincronizarSelectorPrimerContacto(filtro);
+    }
+}
 
 function claveOperacionPrimerContacto(prefijo) {
     const uuid = globalThis.crypto?.randomUUID?.()
@@ -4531,38 +4592,35 @@ function claseEstadoPrimerContacto(estado) {
 }
 
 function enlaceWhatsappPrimerContacto(telefono) {
-    const numero = normalizarTelefonoWhatsappArgentina(telefono);
-
-    if (!numero) return escaparHtml(telefono || "-");
-
-    return `
-        <a class="primer-contacto-whatsapp" href="https://wa.me/${numero}"
-            target="_blank" rel="noopener noreferrer">
-            ${escaparHtml(telefono || numero)}
-        </a>
-    `;
+    return escaparHtml(telefono || "-");
 }
 
-function detalleClientePrimerContacto(resultado) {
-    if (!resultado?.cliente) return "";
+function textoCantidadCotizacionesPrimerContacto(cantidad) {
+    const total = Number(cantidad || 0);
+    return `${total} ${total === 1 ? "cotización" : "cotizaciones"}`;
+}
 
-    const cliente = resultado.cliente;
+function textoCotizacionesPorAsesoraPrimerContacto(resultado) {
+    const grupos = Array.isArray(resultado?.cotizaciones_por_asesora)
+        ? resultado.cotizaciones_por_asesora
+        : [];
+    const total = Number(resultado?.cantidad_cotizaciones_crm || 0);
 
-    return `
-        <div class="primer-contacto-cliente">
-            <span>Cliente existente</span>
-            <strong>${escaparHtml(cliente.nombre || "Sin nombre")}</strong>
-            ${cliente.dni ? `<small>DNI ${escaparHtml(cliente.dni)}</small>` : ""}
-            <small>${Number(cliente.cantidad_cotizaciones || 0)} cotizaciones registradas</small>
-        </div>
-    `;
+    return grupos.map(item => {
+        const asesora = escaparHtml(item.asesora || "Sin asesora");
+        const cantidad = Number(item.cantidad || 0);
+        return total === 1 && cantidad === 1
+            ? asesora
+            : `${asesora} (${cantidad})`;
+    }).join(" · ");
 }
 
 function renderAnalisisPrimerContacto(resultado, { acciones = true } = {}) {
     const asesoras = (resultado.asesoras || []).map(escaparHtml).join(", ");
+    const cotizadoPor = textoCotizacionesPorAsesoraPrimerContacto(resultado);
     const historial = (resultado.historial || []).map(gestion => `
         <li>
-            <span>${formatearFecha(gestion.fecha)}</span>
+            <span>${formatearFechaHoraPrimerContacto(gestion.fecha)}</span>
             <strong>${escaparHtml(gestion.asesora || "-")}</strong>
             ${gestion.observacion
                 ? `<small>${escaparHtml(gestion.observacion)}</small>`
@@ -4572,9 +4630,32 @@ function renderAnalisisPrimerContacto(resultado, { acciones = true } = {}) {
     const telefonoCodificado = encodeURIComponent(
         resultado.telefono_original || resultado.telefono_normalizado || ""
     );
+    const procedencia = resultado.procedencia?.nombre || "Sin informar";
+    const puedeEditarProcedencia = resultado.contacto_id
+        && (!resultado.procedencia || resultado.procedencia.codigo === "sin_informar");
+    const contactoId = Number(resultado.contacto_id || 0);
+    const historialContactabilidad = (resultado.historial_contactabilidad || [])
+        .slice(0, 8)
+        .map(item => `
+            <li>
+                <span>${formatearFechaHoraPrimerContacto(item.fecha)}</span>
+                <strong>${item.marca === "no_enviar_mensajes"
+                    ? "No enviar mensajes"
+                    : "No le interesa"}: ${item.valor_nuevo ? "Sí" : "No"}</strong>
+                <small>${escaparHtml(item.usuario || "-")}${item.motivo
+                    ? ` · ${escaparHtml(item.motivo)}`
+                    : ""}</small>
+            </li>
+        `).join("");
 
     return `
         <article class="primer-contacto-resumen">
+            ${resultado.no_enviar_mensajes ? `
+                <div class="primer-contacto-alerta-bloqueo" role="alert">
+                    <strong>NO ENVIAR MENSAJES</strong>
+                    <span>Este teléfono tiene una restricción activa de contacto.</span>
+                </div>
+            ` : ""}
             <div class="primer-contacto-resumen-head">
                 <div>
                     <span class="${claseEstadoPrimerContacto(resultado.estado)}">
@@ -4591,21 +4672,47 @@ function renderAnalisisPrimerContacto(resultado, { acciones = true } = {}) {
             </div>
 
             ${resultado.ultimo_contacto
-                ? `<p>Último contacto: ${formatearFecha(resultado.ultimo_contacto)}</p>`
+                ? `<p>Último contacto: ${formatearFechaHoraPrimerContacto(resultado.ultimo_contacto)}</p>`
                 : "<p>Este número todavía no tiene gestiones.</p>"}
             ${resultado.ultimo_contacto_propio
-                ? `<p>Tu último contacto: ${formatearFecha(resultado.ultimo_contacto_propio)}</p>`
+                ? `<p>Tu último contacto: ${formatearFechaHoraPrimerContacto(resultado.ultimo_contacto_propio)}</p>`
                 : ""}
             ${asesoras ? `<p>Asesoras: ${asesoras}</p>` : ""}
-            ${resultado.existe_en_crm ? `
-                <p class="primer-contacto-aviso-crm">
-                    Este número ya existe en el Gestor Comercial.
-                    ${Number(resultado.cantidad_cotizaciones_crm || 0)
-                        ? `${Number(resultado.cantidad_cotizaciones_crm)} cotización(es) relacionada(s).`
+            <div class="primer-contacto-detalle-procedencia">
+                <p>Procedencia: <strong>${escaparHtml(procedencia)}</strong></p>
+                ${puedeEditarProcedencia ? `
+                    <button type="button" class="primer-contacto-editar-accion"
+                        aria-label="Editar procedencia"
+                        onclick="abrirEditarPrimerContacto(${contactoId}, '${telefonoCodificado}')">
+                        <span aria-hidden="true">✏️</span> Editar
+                    </button>
+                ` : ""}
+            </div>
+            <div class="primer-contacto-contactabilidad-badges">
+                ${resultado.afiliado
+                    ? '<span class="estado-afiliado">Afiliado</span>'
+                    : ""}
+                ${resultado.no_interesa
+                    ? '<span class="estado-no-interesa">No le interesa</span>'
+                    : ""}
+            </div>
+            ${resultado.cotizado ? `
+                <div class="primer-contacto-cotizaciones-info">
+                    <strong>Cotizado · ${textoCantidadCotizacionesPrimerContacto(
+                        resultado.cantidad_cotizaciones_crm
+                    )}</strong>
+                    ${cotizadoPor
+                        ? `<span>Cotizado por: ${cotizadoPor}</span>`
                         : ""}
-                </p>
+                    ${(resultado.cotizaciones || []).length ? `
+                        <ul>
+                            ${(resultado.cotizaciones || []).map(item => `
+                                <li>Cotización #${item.id} · ${formatearFechaHoraPrimerContacto(item.fecha)} · ${escaparHtml(item.asesora || "-")}</li>
+                            `).join("")}
+                        </ul>
+                    ` : ""}
+                </div>
             ` : ""}
-            ${detalleClientePrimerContacto(resultado)}
 
             ${historial ? `
                 <details class="primer-contacto-historial">
@@ -4613,17 +4720,33 @@ function renderAnalisisPrimerContacto(resultado, { acciones = true } = {}) {
                     <ol>${historial}</ol>
                 </details>
             ` : ""}
+            ${historialContactabilidad ? `
+                <details class="primer-contacto-historial">
+                    <summary>Historial de contactabilidad</summary>
+                    <ol>${historialContactabilidad}</ol>
+                </details>
+            ` : ""}
 
             ${acciones && resultado.valido !== false ? `
                 <div class="primer-contacto-card-actions">
-                    <button type="button" onclick="abrirNuevoPrimerContacto('${telefonoCodificado}')">
-                        ${resultado.ya_contactado_por_mi
-                            ? "Registrar nuevo contacto"
-                            : resultado.cantidad_contactos || resultado.existe_en_crm
-                                ? "Agregarme como asesora"
-                                : "Registrar contacto"}
-                    </button>
-                    <button type="button" class="secondary-btn"
+                    ${contactoId ? `
+                        <button type="button" class="secondary-btn primer-contacto-accion-secundaria"
+                            onclick="cambiarContactabilidadPrimerContacto(${contactoId}, 'no_interesa', ${!resultado.no_interesa})">
+                            ${resultado.no_interesa ? "Quitar No le interesa" : "No le interesa"}
+                        </button>
+                        ${!resultado.no_enviar_mensajes ? `
+                            <button type="button" class="primer-contacto-accion-restriccion"
+                                onclick="cambiarContactabilidadPrimerContacto(${contactoId}, 'no_enviar_mensajes', true)">
+                                No enviar mensajes
+                            </button>
+                        ` : esAdmin() ? `
+                            <button type="button" class="danger-outline-btn"
+                                onclick="cambiarContactabilidadPrimerContacto(${contactoId}, 'no_enviar_mensajes', false)">
+                                Retirar restricción
+                            </button>
+                        ` : ""}
+                    ` : ""}
+                    <button type="button" class="primer-contacto-accion-principal"
                         onclick="crearCotizacionDesdePrimerContacto('${telefonoCodificado}')">
                         Crear cotización
                     </button>
@@ -4698,20 +4821,29 @@ function renderGrupoPrimerContacto(gestiones) {
     const telefonoCodificado = encodeURIComponent(
         principal.telefono_original || principal.telefono_normalizado
     );
-    const historial = gestiones.slice(0, 6).map(gestion => `
-        <li>
-            <span>${formatearFecha(gestion.fecha)}</span>
-            <strong>${escaparHtml(gestion.asesora || "-")}</strong>
-            ${gestion.observacion
-                ? `<small>${escaparHtml(gestion.observacion)}</small>`
-                : ""}
-        </li>
-    `).join("");
+    const asesoras = [...new Set(
+        gestiones.map(gestion => gestion.asesora).filter(Boolean)
+    )];
     const datos = {
+        contacto_id: principal.contacto_id,
         telefono_original: principal.telefono_original,
         telefono_normalizado: principal.telefono_normalizado,
         nombre: principal.nombre,
         cantidad_contactos: Number(principal.cantidad_contactos || gestiones.length),
+        procedencia: principal.procedencia_codigo
+            ? {
+                id: principal.procedencia_id,
+                codigo: principal.procedencia_codigo,
+                nombre: principal.procedencia_nombre
+            }
+            : null,
+        no_interesa: Boolean(principal.no_interesa),
+        no_enviar_mensajes: Boolean(principal.no_enviar_mensajes),
+        cotizado: Boolean(principal.cotizado),
+        afiliado: Boolean(principal.afiliado),
+        cantidad_cotizaciones_crm: Number(principal.cantidad_cotizaciones_crm || 0),
+        asesoras_cotizaciones: principal.asesoras_cotizaciones || [],
+        cotizaciones_por_asesora: principal.cotizaciones_por_asesora || [],
         cliente: principal.cliente_id
             ? {
                 id: principal.cliente_id,
@@ -4727,33 +4859,65 @@ function renderGrupoPrimerContacto(gestiones) {
 
     return `
         <article class="primer-contacto-card">
+            ${principal.no_enviar_mensajes ? `
+                <div class="primer-contacto-alerta-bloqueo" role="alert">
+                    <strong>NO ENVIAR MENSAJES</strong>
+                    <span>Restricción activa</span>
+                </div>
+            ` : ""}
             <div class="primer-contacto-card-main">
-                <span class="primer-contacto-card-fecha">${formatearFecha(principal.fecha)}</span>
-                <h3>${enlaceWhatsappPrimerContacto(
-                    principal.telefono_original || principal.telefono_normalizado
-                )}</h3>
-                <p>${escaparHtml(principal.nombre || "Sin nombre informado")}</p>
-                <div class="primer-contacto-meta">
-                    <span>${Number(principal.cantidad_contactos || gestiones.length)} contactos totales</span>
-                    <span>Último registro: ${escaparHtml(principal.asesora || "-")}</span>
-                    ${principal.cliente_id ? "<span>Cliente CRM vinculado</span>" : ""}
+                <div class="primer-contacto-card-topline">
+                    <h3>${enlaceWhatsappPrimerContacto(
+                        principal.telefono_original || principal.telefono_normalizado
+                    )}</h3>
+                    <span class="primer-contacto-card-fecha">${formatearFechaHoraPrimerContacto(principal.fecha)}</span>
+                </div>
+                ${principal.nombre
+                    ? `<p class="primer-contacto-card-nombre">${escaparHtml(principal.nombre)}</p>`
+                    : ""}
+                <dl class="primer-contacto-card-datos">
+                    <div>
+                        <dt>Procedencia</dt>
+                        <dd>${escaparHtml(principal.procedencia_nombre || "Sin informar")}</dd>
+                    </div>
+                    <div>
+                        <dt>${asesoras.length > 1 ? "Asesoras" : "Última asesora"}</dt>
+                        <dd>${escaparHtml(asesoras.length > 1
+                            ? asesoras.join(", ")
+                            : principal.asesora || "-")}</dd>
+                    </div>
+                </dl>
+                <div class="primer-contacto-card-estados">
+                    ${principal.afiliado
+                        ? '<span class="estado-afiliado">Afiliado</span>'
+                        : principal.cotizado
+                            ? '<span class="estado-cotizado">Cotizado</span>'
+                            : ""}
+                    ${principal.no_interesa
+                        ? '<span class="estado-no-interesa">No le interesa</span>'
+                        : ""}
                 </div>
             </div>
             <div class="primer-contacto-card-actions">
-                <button type="button" onclick="abrirNuevoPrimerContacto('${telefonoCodificado}')">
-                    Registrar nuevo contacto
-                </button>
                 <button type="button" class="secondary-btn"
-                    onclick="crearCotizacionDesdePrimerContacto('${telefonoCodificado}')">
-                    Crear cotización
+                    onclick="verDetallePrimerContacto('${telefonoCodificado}')">
+                    Ver detalle
                 </button>
             </div>
-            <details class="primer-contacto-historial">
-                <summary>Historial visible</summary>
-                <ol>${historial}</ol>
-            </details>
         </article>
     `;
+}
+
+async function verDetallePrimerContacto(telefonoCodificado) {
+    const input = document.getElementById("primerContactoBuscarTelefono");
+    if (!input) return;
+
+    input.value = decodeURIComponent(telefonoCodificado || "");
+    await buscarPrimerContacto();
+    document.getElementById("primerContactoBusquedaResultado")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+    });
 }
 
 async function cargarPrimerosContactos() {
@@ -4762,12 +4926,14 @@ async function cargarPrimerosContactos() {
 
     const fecha = document.getElementById("primerContactoFecha")?.value || "";
     const vista = document.getElementById("primerContactoVista")?.value || "todos";
+    const procedencia = document.getElementById("primerContactoProcedenciaFiltro")?.value || "";
     const params = new URLSearchParams();
 
     if (fecha) {
         params.set("fecha_desde", fecha);
         params.set("fecha_hasta", fecha);
     }
+    if (procedencia) params.set("procedencia", procedencia);
     if (esAdmin()) {
         if (vista === "mis") params.set("vista", "mis");
         if (vista.startsWith("asesora:")) {
@@ -4796,9 +4962,54 @@ async function cargarPrimerosContactos() {
         listado.innerHTML = grupos.length
             ? grupos.map(renderGrupoPrimerContacto).join("")
             : "<p>No hay contactos para mostrar.</p>";
+        await cargarResumenPrimerContacto();
     } catch (error) {
         listado.innerHTML = "<p>No se pudieron cargar los contactos.</p>";
     }
+}
+
+async function cargarResumenPrimerContacto() {
+    const contenedor = document.getElementById("primerContactoResumen");
+    if (!contenedor) return;
+
+    const params = new URLSearchParams(
+        filtrosPrimerContactoQuery().replace(/^\?/, "")
+    );
+    params.delete("procedencia");
+    const query = params.toString() ? `?${params.toString()}` : "";
+    try {
+        const res = await fetch(`/primer-contacto/resumen${query}`, {
+            headers: authHeaders()
+        });
+        const datos = await res.json().catch(() => ({}));
+        if (await manejarError(res)) return;
+        if (!res.ok) throw new Error(datos.error || "No se pudo cargar el resumen");
+
+        contenedor.innerHTML = `
+            <button type="button" class="primer-contacto-resumen-card resumen-total"
+                onclick="filtrarPrimerContactoPorProcedencia('')">
+                <span>Total</span>
+                <strong>${Number(datos.total || 0).toLocaleString("es-AR")}</strong>
+            </button>
+            ${(datos.procedencias || []).map(item => `
+                <button type="button" class="primer-contacto-resumen-card"
+                    onclick="filtrarPrimerContactoPorProcedencia('${escaparHtml(item.codigo)}')">
+                    <span>${escaparHtml(item.nombre)}</span>
+                    <strong>${Number(item.cantidad || 0).toLocaleString("es-AR")}</strong>
+                </button>
+            `).join("")}
+        `;
+    } catch (error) {
+        contenedor.innerHTML = "<p>No se pudo cargar el resumen.</p>";
+    }
+}
+
+function filtrarPrimerContactoPorProcedencia(codigo) {
+    const filtro = document.getElementById("primerContactoProcedenciaFiltro");
+    if (!filtro) return;
+    filtro.value = codigo;
+    sincronizarSelectorPrimerContacto(filtro);
+    cargarPrimerosContactos();
 }
 
 function actualizarVistasPrimerContacto(gestiones = []) {
@@ -4830,17 +5041,20 @@ function actualizarVistasPrimerContacto(gestiones = []) {
     select.value = [...select.options].some(option => option.value === seleccion)
         ? seleccion
         : "todos";
+    sincronizarSelectorPrimerContacto(select);
 }
 
 function filtrosPrimerContactoQuery() {
     const params = new URLSearchParams();
     const fecha = document.getElementById("primerContactoFecha")?.value || "";
     const vista = document.getElementById("primerContactoVista")?.value || "mis";
+    const procedencia = document.getElementById("primerContactoProcedenciaFiltro")?.value || "";
 
     if (fecha) {
         params.set("fecha_desde", fecha);
         params.set("fecha_hasta", fecha);
     }
+    if (procedencia) params.set("procedencia", procedencia);
     if (esAdmin()) {
         if (vista === "mis") params.set("vista", "mis");
         if (vista.startsWith("asesora:")) {
@@ -4889,11 +5103,13 @@ function limpiarFiltrosPrimerContacto() {
     const telefono = document.getElementById("primerContactoBuscarTelefono");
     const fecha = document.getElementById("primerContactoFecha");
     const vista = document.getElementById("primerContactoVista");
+    const procedencia = document.getElementById("primerContactoProcedenciaFiltro");
     const resultado = document.getElementById("primerContactoBusquedaResultado");
 
     if (telefono) telefono.value = "";
     if (fecha) fecha.value = "";
     if (vista) vista.value = esAdmin() ? "todos" : "mis";
+    if (procedencia) procedencia.value = "";
     if (resultado) {
         resultado.hidden = true;
         resultado.innerHTML = "";
@@ -4912,6 +5128,7 @@ function reiniciarAnalisisPrimerContactoIndividual() {
         analisis.innerHTML = "";
     }
     if (boton) boton.textContent = "Analizar teléfono";
+    if (boton) boton.hidden = false;
 }
 
 function abrirNuevoPrimerContacto(telefonoCodificado = "") {
@@ -4922,6 +5139,11 @@ function abrirNuevoPrimerContacto(telefonoCodificado = "") {
     reiniciarAnalisisPrimerContactoIndividual();
     document.getElementById("primerContactoTelefono").value =
         decodeURIComponent(telefonoCodificado || "");
+    const procedencia = document.getElementById("primerContactoProcedencia");
+    if (procedencia) {
+        procedencia.value = "";
+        sincronizarSelectorPrimerContacto(procedencia);
+    }
     modal.hidden = false;
     document.body.classList.add("modal-open");
     document.getElementById("primerContactoTelefono")?.focus();
@@ -4938,6 +5160,7 @@ async function procesarNuevoPrimerContacto(event) {
     if (primerContactoIndividualEnCurso) return;
 
     const telefono = document.getElementById("primerContactoTelefono").value.trim();
+    const procedenciaCodigo = document.getElementById("primerContactoProcedencia")?.value || "";
     const normalizado = normalizarTelefono(telefono);
     const boton = document.getElementById("primerContactoConfirmarIndividual");
     const panel = document.getElementById("primerContactoAnalisisIndividual");
@@ -4946,6 +5169,10 @@ async function procesarNuevoPrimerContacto(event) {
         !primerContactoAnalisisIndividual
         || primerContactoAnalisisIndividual.telefono_normalizado !== normalizado
     ) {
+        if (!procedenciaCodigo) {
+            mostrarToast("Seleccioná una procedencia", "error");
+            return;
+        }
         primerContactoIndividualEnCurso = true;
         boton.disabled = true;
         try {
@@ -4964,13 +5191,16 @@ async function procesarNuevoPrimerContacto(event) {
             primerContactoAnalisisIndividual = datos;
             primerContactoClaveIndividual = claveOperacionPrimerContacto("individual");
             guardarDatosPrimerContacto(datos);
-            panel.innerHTML = renderAnalisisPrimerContacto(datos, { acciones: false });
+            panel.innerHTML = renderAnalisisPrimerContacto(datos, {
+                acciones: Boolean(datos.contacto_id)
+            });
             panel.hidden = false;
-            boton.textContent = datos.ya_contactado_por_mi
-                ? "Registrar nuevo contacto"
-                : datos.cantidad_contactos || datos.existe_en_crm
-                    ? "Agregarme como asesora"
-                    : "Registrar contacto";
+            if (datos.contacto_id) {
+                boton.hidden = true;
+                mostrarToast("El teléfono ya existe. Usá las acciones del detalle.");
+            } else {
+                boton.textContent = "Registrar contacto";
+            }
         } finally {
             boton.disabled = false;
             primerContactoIndividualEnCurso = false;
@@ -4986,8 +5216,7 @@ async function procesarNuevoPrimerContacto(event) {
             headers: authHeaders(),
             body: JSON.stringify({
                 telefono,
-                nombre: document.getElementById("primerContactoNombre").value,
-                observacion: document.getElementById("primerContactoObservacion").value,
+                procedencia_codigo: procedenciaCodigo,
                 confirmar_repetido: primerContactoAnalisisIndividual.ya_contactado_por_mi,
                 clave_idempotencia: primerContactoClaveIndividual
             })
@@ -5019,6 +5248,8 @@ function abrirCargaMultiplePrimerContacto() {
     primerContactoPreviewMultiple = [];
     primerContactoClaveMultiple = null;
     document.getElementById("primerContactoNumerosMultiples").value = "";
+    document.getElementById("primerContactoProcedenciaMultiple").value = "";
+    sincronizarSelectorPrimerContacto("primerContactoProcedenciaMultiple");
     document.getElementById("primerContactoPreviewMultiple").innerHTML = "";
     document.getElementById("primerContactoPreviewMultiple").hidden = true;
     document.getElementById("primerContactoConfirmarMultiple").hidden = true;
@@ -5037,11 +5268,19 @@ function cerrarCargaMultiplePrimerContacto() {
 function renderPreviewMultiplePrimerContacto(resultados) {
     return resultados.map((resultado, indice) => {
         const seleccionable = resultado.valido !== false
-            && resultado.estado !== "duplicado_tanda";
+            && resultado.estado !== "duplicado_tanda"
+            && !resultado.contacto_id
+            && !resultado.no_enviar_mensajes;
         const checked = seleccionable && resultado.seleccion_recomendada;
 
         return `
             <article class="primer-contacto-preview-item">
+                ${resultado.no_enviar_mensajes ? `
+                    <div class="primer-contacto-alerta-bloqueo" role="alert">
+                        <strong>NO ENVIAR MENSAJES</strong>
+                        <span>No se incluirá en la carga.</span>
+                    </div>
+                ` : ""}
                 <label>
                     <input type="checkbox" data-primer-contacto-indice="${indice}"
                         ${checked ? "checked" : ""} ${seleccionable ? "" : "disabled"}>
@@ -5051,12 +5290,22 @@ function renderPreviewMultiplePrimerContacto(resultados) {
                             ${textoEstadoPrimerContacto(resultado.estado)}
                         </span>
                         ${resultado.ultimo_contacto_propio
-                            ? `<small>Tu último contacto: ${formatearFecha(resultado.ultimo_contacto_propio)}</small>`
+                            ? `<small>Tu último contacto: ${formatearFechaHoraPrimerContacto(resultado.ultimo_contacto_propio)}</small>`
                             : resultado.ultimo_contacto
-                                ? `<small>Último contacto: ${formatearFecha(resultado.ultimo_contacto)}</small>`
+                                ? `<small>Último contacto: ${formatearFechaHoraPrimerContacto(resultado.ultimo_contacto)}</small>`
                                 : ""}
                         ${resultado.cliente
                             ? `<small>Cliente: ${escaparHtml(resultado.cliente.nombre || "Sin nombre")}</small>`
+                            : ""}
+                        <small>Procedencia: ${escaparHtml(resultado.procedencia?.nombre || "Sin informar")}</small>
+                        ${(resultado.asesoras || []).length
+                            ? `<small>Contactado por: ${(resultado.asesoras || []).map(escaparHtml).join(", ")}</small>`
+                            : ""}
+                        ${resultado.cotizado
+                            ? `<small>Cotizado (${Number(resultado.cantidad_cotizaciones_crm || 0)}) por: ${(resultado.asesoras_cotizaciones || []).map(escaparHtml).join(", ") || "Sin asesora"}</small>`
+                            : ""}
+                        ${resultado.no_interesa
+                            ? '<small class="estado-no-interesa">No le interesa</small>'
                             : ""}
                     </span>
                 </label>
@@ -5070,9 +5319,14 @@ async function analizarCargaMultiplePrimerContacto() {
     const lineas = textarea.value.split(/\r?\n/).map(linea => linea.trim()).filter(Boolean);
     const preview = document.getElementById("primerContactoPreviewMultiple");
     const boton = document.getElementById("primerContactoAnalizarMultiple");
+    const procedenciaCodigo = document.getElementById("primerContactoProcedenciaMultiple")?.value || "";
 
-    if (lineas.length > 30) {
-        mostrarToast("Podés cargar un máximo de 30 números por vez.", "error");
+    if (!procedenciaCodigo) {
+        mostrarToast("Seleccioná una procedencia para toda la carga", "error");
+        return;
+    }
+    if (lineas.length > 50) {
+        mostrarToast("Podés cargar un máximo de 50 números por vez.", "error");
         return;
     }
     if (!lineas.length) {
@@ -5087,7 +5341,10 @@ async function analizarCargaMultiplePrimerContacto() {
         const res = await fetch("/primer-contacto/analizar-multiple", {
             method: "POST",
             headers: authHeaders(),
-            body: JSON.stringify({ numeros: lineas })
+            body: JSON.stringify({
+                numeros: lineas,
+                procedencia_codigo: procedenciaCodigo
+            })
         });
         const datos = await res.json().catch(() => ({}));
 
@@ -5117,6 +5374,7 @@ async function confirmarCargaMultiplePrimerContacto() {
     const seleccionados = [...document.querySelectorAll(
         "[data-primer-contacto-indice]:checked"
     )].map(input => primerContactoPreviewMultiple[Number(input.dataset.primerContactoIndice)]);
+    const procedenciaCodigo = document.getElementById("primerContactoProcedenciaMultiple")?.value || "";
 
     if (!seleccionados.length) {
         mostrarToast("Seleccioná al menos un número", "error");
@@ -5132,6 +5390,7 @@ async function confirmarCargaMultiplePrimerContacto() {
             headers: authHeaders(),
             body: JSON.stringify({
                 clave_operacion: primerContactoClaveMultiple,
+                procedencia_codigo: procedenciaCodigo,
                 items: seleccionados.map(resultado => ({
                     telefono: resultado.telefono_original,
                     confirmar_repetido: resultado.ya_contactado_por_mi
@@ -5155,6 +5414,107 @@ async function confirmarCargaMultiplePrimerContacto() {
         boton.disabled = false;
         primerContactoConfirmacionMultipleEnCurso = false;
     }
+}
+
+function abrirEditarPrimerContacto(contactoId, telefonoCodificado = "") {
+    document.getElementById("primerContactoEditarId").value = contactoId;
+    document.getElementById("primerContactoEditarTelefono").textContent =
+        decodeURIComponent(telefonoCodificado || "");
+    document.getElementById("primerContactoEditarProcedencia").value = "";
+    sincronizarSelectorPrimerContacto("primerContactoEditarProcedencia");
+    document.getElementById("primerContactoEditarModal").hidden = false;
+    document.body.classList.add("modal-open");
+    document.getElementById("primerContactoEditarProcedencia")
+        ?._selectPersonalizadoBoton?.focus();
+}
+
+function cerrarEditarPrimerContacto() {
+    document.getElementById("primerContactoEditarModal").hidden = true;
+    document.body.classList.remove("modal-open");
+}
+
+async function guardarEdicionPrimerContacto(event) {
+    event.preventDefault();
+    const contactoId = document.getElementById("primerContactoEditarId").value;
+    const procedenciaCodigo = document.getElementById("primerContactoEditarProcedencia").value;
+    if (!procedenciaCodigo) {
+        mostrarToast("Seleccioná una procedencia", "error");
+        return;
+    }
+
+    mostrarLoader();
+    try {
+        const res = await fetch(`/primer-contacto/${contactoId}/procedencia`, {
+            method: "PUT",
+            headers: authHeaders(),
+            body: JSON.stringify({ procedencia_codigo: procedenciaCodigo })
+        });
+        const datos = await res.json().catch(() => ({}));
+        if (await manejarError(res)) return;
+        if (!res.ok) {
+            mostrarToast(datos.error || "No se pudo guardar la procedencia", "error");
+            return;
+        }
+
+        cerrarEditarPrimerContacto();
+        mostrarToast("Procedencia actualizada");
+        await refrescarPrimerContactoActual();
+    } finally {
+        ocultarLoader();
+    }
+}
+
+async function cambiarContactabilidadPrimerContacto(contactoId, marca, valor) {
+    const esBloqueo = marca === "no_enviar_mensajes";
+    const texto = esBloqueo
+        ? valor
+            ? "¿Confirmás que no deben enviarse mensajes a este teléfono?"
+            : "¿Confirmás que querés retirar la restricción No enviar mensajes?"
+        : valor
+            ? "¿Marcar este teléfono como No le interesa?"
+            : "¿Quitar la marca No le interesa?";
+    if (!window.confirm(texto)) return;
+
+    let motivo = null;
+    if (esBloqueo && !valor) {
+        motivo = window.prompt("Ingresá el motivo obligatorio para retirar la restricción:");
+        if (!motivo?.trim()) {
+            mostrarToast("El motivo es obligatorio", "error");
+            return;
+        }
+    }
+
+    mostrarLoader();
+    try {
+        const res = await fetch(`/primer-contacto/${contactoId}/contactabilidad`, {
+            method: "PUT",
+            headers: authHeaders(),
+            body: JSON.stringify({
+                marca,
+                valor,
+                motivo,
+                confirmar_retiro: esBloqueo && !valor,
+                clave_idempotencia: claveOperacionPrimerContacto("contactabilidad")
+            })
+        });
+        const datos = await res.json().catch(() => ({}));
+        if (await manejarError(res)) return;
+        if (!res.ok) {
+            mostrarToast(datos.error || "No se pudo actualizar la contactabilidad", "error");
+            return;
+        }
+
+        mostrarToast("Contactabilidad actualizada");
+        await refrescarPrimerContactoActual();
+    } finally {
+        ocultarLoader();
+    }
+}
+
+async function refrescarPrimerContactoActual() {
+    await cargarPrimerosContactos();
+    const busqueda = document.getElementById("primerContactoBuscarTelefono");
+    if (busqueda?.value.trim()) await buscarPrimerContacto();
 }
 
 function crearCotizacionDesdePrimerContacto(telefonoCodificado) {
@@ -5236,6 +5596,9 @@ window.onload = function () {
 
     prepararInicioCrm();
     prepararSelectoresPersonalizados();
+    cargarProcedenciasPrimerContacto().catch(() => {
+        mostrarToast("No se pudieron cargar las procedencias", "error");
+    });
     cargarUsuarios();
     cargarInicioCrm();
     prepararTelefonoAsesora();
@@ -5248,6 +5611,8 @@ window.onload = function () {
                 cerrarNuevoPrimerContacto();
             } else if (!document.getElementById("primerContactoMultipleModal")?.hidden) {
                 cerrarCargaMultiplePrimerContacto();
+            } else if (!document.getElementById("primerContactoEditarModal")?.hidden) {
+                cerrarEditarPrimerContacto();
             } else if (!document.getElementById("inicioTareaModal")?.hidden) {
                 cerrarFormularioTarea();
             } else if (!document.getElementById("todasTareasModal")?.hidden) {
