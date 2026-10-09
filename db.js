@@ -25,7 +25,7 @@ function postgresSql(sql) {
 
 function withReturningId(sql) {
     if (
-        /^\s*INSERT\s+INTO\s+(cotizaciones|tareas_crm|primer_contacto_identidades|primer_contacto_gestiones|primer_contacto_procedencia_historial|primer_contacto_contactabilidad_historial)\b/i.test(sql) &&
+        /^\s*INSERT\s+INTO\s+(cotizaciones|tareas_crm|primer_contacto_identidades|primer_contacto_gestiones|primer_contacto_procedencia_historial|primer_contacto_contactabilidad_historial|oportunidades_crm|oportunidad_asesoras|oportunidad_historial)\b/i.test(sql) &&
         !/\bRETURNING\b/i.test(sql)
     ) {
         return `${sql} RETURNING id`;
@@ -124,7 +124,10 @@ function createPostgresDatabase() {
 }
 
 function createSqliteDatabase() {
-    const sqlite = new sqlite3.Database(path.join(__dirname, "database.db"));
+    const sqlitePath = process.env.SQLITE_DATABASE_PATH
+        ? path.resolve(process.env.SQLITE_DATABASE_PATH)
+        : path.join(__dirname, "database.db");
+    const sqlite = new sqlite3.Database(sqlitePath);
 
     sqlite.type = "sqlite";
     sqlite.toNativeSql = sql => sql;

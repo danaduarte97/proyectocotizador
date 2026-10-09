@@ -168,6 +168,24 @@
                             <div class="inicio-section-bar">
                                 <h3>Seguimiento comercial</h3>
                                 <div class="inicio-seguimiento-controles">
+                                    <label class="pipeline-busqueda-control">
+                                        <span>Buscar</span>
+                                        <input id="inicioBusquedaPipeline" type="search"
+                                            placeholder="Nombre, DNI o teléfono"
+                                            oninput="programarBusquedaPipeline()">
+                                    </label>
+                                    <label>
+                                        <span>Etapa</span>
+                                        <select id="inicioEtapaPipeline" data-select-personalizado
+                                            onchange="cambiarFiltrosPipeline()">
+                                            <option value="">Todas las etapas</option>
+                                            <option value="Inicio">Inicio</option>
+                                            <option value="Interesados">Interesados</option>
+                                            <option value="Documentación">Documentación</option>
+                                            <option value="Auditoría">Auditoría</option>
+                                            <option value="Afiliados">Afiliados</option>
+                                        </select>
+                                    </label>
                                     <label id="inicioAsesoraControl" hidden>
                                         <span>Ver seguimiento de:</span>
                                         <select id="inicioAsesora" data-select-personalizado
@@ -175,6 +193,18 @@
                                             <option value="">Todas las asesoras</option>
                                         </select>
                                     </label>
+                                    <button type="button" class="inicio-agenda-btn"
+                                        onclick="abrirAgendaInicio(this)" aria-haspopup="dialog"
+                                        aria-controls="inicioAgendaModal">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                                            aria-hidden="true">
+                                            <rect x="3" y="5" width="18" height="16" rx="2" />
+                                            <path d="M16 3v4M8 3v4M3 10h18" />
+                                            <path d="M8 14h3M8 17h6" />
+                                        </svg>
+                                        <span>Agenda y tareas</span>
+                                    </button>
                                     <button type="button" class="inicio-refresh-btn" onclick="cargarInicioCrm()">
                                         Actualizar
                                     </button>
@@ -183,6 +213,22 @@
 
                             <div id="inicioPipeline" class="pipeline-board" aria-live="polite"></div>
                         </section>
+
+                    </div>
+                </div>
+
+                <div id="inicioAgendaModal" class="inicio-agenda-modal" hidden
+                    onclick="if (event.target === this) cerrarAgendaInicio()">
+                    <section class="inicio-agenda-dialog" role="dialog" aria-modal="true"
+                        aria-labelledby="inicioAgendaModalTitulo">
+                        <div class="inicio-dialog-header">
+                            <div>
+                                <h3 id="inicioAgendaModalTitulo">Agenda y tareas</h3>
+                                <p>Consult&aacute; tu calendario y administr&aacute; tus tareas y recordatorios.</p>
+                            </div>
+                            <button type="button" class="inicio-dialog-close" onclick="cerrarAgendaInicio()"
+                                aria-label="Cerrar agenda y tareas">&times;</button>
+                        </div>
 
                         <aside class="inicio-side">
                             <section class="inicio-panel inicio-panel-calendario">
@@ -223,7 +269,7 @@
                                 </button>
                             </section>
                         </aside>
-                    </div>
+                    </section>
                 </div>
 
                 <div id="inicioTareaModal" class="inicio-tarea-modal" hidden
@@ -1235,7 +1281,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
     <script src="select-personalizado.js"></script>
-    <script src="script.js"></script>
+    <script src="script.js?v=20261009-bloque2-agenda"></script>
 
 </body>
 

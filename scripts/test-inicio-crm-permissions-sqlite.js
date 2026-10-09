@@ -21,6 +21,10 @@ fs.copyFileSync(
     path.join(repoRoot, "lib", "posventa.js"),
     path.join(tempDir, "lib", "posventa.js")
 );
+fs.copyFileSync(
+    path.join(repoRoot, "lib", "oportunidades.js"),
+    path.join(tempDir, "lib", "oportunidades.js")
+);
 
 const childEnv = {
     ...process.env,
@@ -221,6 +225,35 @@ async function main() {
                 "Interesados"
             ]
         )).lastID;
+        for (const [clienteId, cotizacionId, vendedora] of [
+            [clienteA, cotizacionA, "vendedora_a"],
+            [clienteB, cotizacionB, "vendedora_b"]
+        ]) {
+            const oportunidadId = (await run(
+                db,
+                `INSERT INTO oportunidades_crm
+                 (cliente_id, ciclo, estado, etapa, responsable_usuario_id,
+                  responsable_nombre_snapshot, primera_cotizacion_id, origen)
+                 VALUES (?, 1, 'activa', 'Inicio',
+                    (SELECT id FROM usuarios WHERE usuario = ?), ?, ?, 'backfill')`,
+                [clienteId, vendedora, vendedora, cotizacionId]
+            )).lastID;
+            await run(
+                db,
+                `INSERT INTO oportunidad_asesoras
+                 (oportunidad_id, usuario_id, asesora_nombre_snapshot,
+                  asesora_nombre_normalizado, es_responsable,
+                  primera_cotizacion_id, cantidad_cotizaciones, origen)
+                 VALUES (?, (SELECT id FROM usuarios WHERE usuario = ?),
+                    ?, ?, 1, ?, 1, 'backfill')`,
+                [oportunidadId, vendedora, vendedora, vendedora, cotizacionId]
+            );
+            await run(
+                db,
+                "UPDATE cotizaciones SET oportunidad_id = ? WHERE id = ?",
+                [oportunidadId, cotizacionId]
+            );
+        }
         tareaB = (await run(
             db,
             `INSERT INTO tareas_crm
@@ -371,13 +404,16 @@ async function main() {
 
     const sellerPipeline = await request("/pipeline", sellerToken);
     assert.strictEqual(sellerPipeline.status, 200);
-    const sellerQuotes = sellerPipeline.body.flatMap(column => column.cotizaciones);
-    assert.deepStrictEqual(sellerQuotes.map(item => item.id), [cotizacionA]);
+    const sellerOpportunities = sellerPipeline.body.flatMap(column => column.oportunidades);
+    assert.deepStrictEqual(
+        sellerOpportunities.flatMap(item => item.cotizaciones).map(item => item.id),
+        [cotizacionA]
+    );
 
     const adminPipeline = await request("/pipeline", adminToken);
     assert.strictEqual(adminPipeline.status, 200);
     assert.strictEqual(
-        adminPipeline.body.flatMap(column => column.cotizaciones).length,
+        adminPipeline.body.flatMap(column => column.oportunidades).length,
         2
     );
 
@@ -385,7 +421,7 @@ async function main() {
     assert.strictEqual(inicioInicial.status, 200);
     assert.strictEqual(inicioInicial.body.estadisticas.cotizaciones_mes, 3);
     assert.strictEqual(
-        inicioInicial.body.pipeline.flatMap(column => column.cotizaciones).length,
+        inicioInicial.body.pipeline.flatMap(column => column.oportunidades).length,
         2
     );
 
@@ -463,7 +499,8 @@ async function main() {
     assert.strictEqual(pipelineDespuesDeAnular.status, 200);
     assert.deepStrictEqual(
         pipelineDespuesDeAnular.body
-            .flatMap(column => column.cotizaciones)
+            .flatMap(column => column.oportunidades)
+            .flatMap(item => item.cotizaciones)
             .map(item => item.id),
         [cotizacionA]
     );
@@ -473,7 +510,7 @@ async function main() {
     assert.strictEqual(inicioDespuesDeAnular.body.estadisticas.cotizaciones_mes, 3);
     assert.strictEqual(
         inicioDespuesDeAnular.body.pipeline
-            .flatMap(column => column.cotizaciones).length,
+            .flatMap(column => column.oportunidades).length,
         1
     );
 
@@ -498,7 +535,7 @@ async function main() {
 
         assert.deepStrictEqual(quoteA, {
             estado: "Nuevo",
-            etapa_pipeline: "Contactados"
+            etapa_pipeline: "Nuevos"
         });
         assert.deepStrictEqual(quoteB, {
             estado: "Anulada",

@@ -11,9 +11,15 @@ const {
     esFechaIsoValida,
     sumarMesesCalendario
 } = require("./lib/posventa");
+const {
+    cotizacionActiva: cotizacionActivaOportunidad,
+    simularOportunidades
+} = require("./lib/oportunidades");
 
 const app = express();
 const SECRET = process.env.JWT_SECRET || "secreto_ultra_seguro";
+const OPORTUNIDADES_SOMBRA_HABILITADA =
+    process.env.OPORTUNIDADES_SOMBRA_HABILITADA === "true";
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -36,6 +42,26 @@ fs.mkdirSync(uploadsDir, { recursive: true });
 // 👉 MIDDLEWARES
 app.use(cors());
 app.use(express.json());
+
+if (process.env.LOCAL_REVIEW_REQUEST_LOG === "true") {
+    app.use((req, res, next) => {
+        const inicio = Date.now();
+        res.on("finish", () => {
+            if (
+                req.path.startsWith("/inicio")
+                || req.path.startsWith("/pipeline")
+                || req.path.startsWith("/oportunidades")
+                || req.path.startsWith("/tareas")
+            ) {
+                console.log(
+                    `[local-review] ${req.method} ${req.originalUrl} `
+                    + `${res.statusCode} ${Date.now() - inicio}ms`
+                );
+            }
+        });
+        next();
+    });
+}
 
 // Los adjuntos se sirven mediante una ruta autenticada mas abajo. Evitar que
 // express.static permita acceder a public/uploads con una URL conocida.
@@ -196,6 +222,14 @@ const ESTADOS_TAREA_CRM = [
     "pendiente",
     "realizada",
     "cancelada"
+];
+
+const ETAPAS_OPORTUNIDAD = [
+    "Inicio",
+    "Interesados",
+    "Documentación",
+    "Auditoría",
+    "Afiliados"
 ];
 
 const CODIGOS_PROCEDENCIA_SELECCIONABLES = [
@@ -1193,6 +1227,10 @@ db.serialize(() => {
 `, () => { });
     db.run(`
     ALTER TABLE cotizaciones
+    ADD COLUMN oportunidad_id INTEGER
+`, () => { });
+    db.run(`
+    ALTER TABLE cotizaciones
     ADD COLUMN fecha_actualizacion_posventa DATETIME
 `, () => { });
 
@@ -1309,6 +1347,93 @@ db.serialize(() => {
             [codigo, nombre, seleccionable, orden]
         );
     });
+    db.run(`
+    CREATE TABLE IF NOT EXISTS oportunidades_crm (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE RESTRICT,
+        oportunidad_anterior_id INTEGER REFERENCES oportunidades_crm(id) ON DELETE SET NULL,
+        ciclo INTEGER NOT NULL DEFAULT 1 CHECK (ciclo > 0),
+        estado TEXT NOT NULL DEFAULT 'activa'
+            CHECK (estado IN ('activa', 'cerrada_baja', 'cerrada_perdida')),
+        etapa TEXT NOT NULL DEFAULT 'Inicio'
+            CHECK (etapa IN ('Inicio', 'Interesados', 'Documentación', 'Auditoría', 'Afiliados')),
+        responsable_usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+        responsable_nombre_snapshot TEXT,
+        primera_cotizacion_id INTEGER REFERENCES cotizaciones(id) ON DELETE SET NULL,
+        procedencia_id INTEGER REFERENCES procedencias(id) ON DELETE RESTRICT,
+        primer_contacto_identidad_id INTEGER REFERENCES primer_contacto_identidades(id) ON DELETE SET NULL,
+        procedencia_atribucion TEXT NOT NULL DEFAULT 'sin_informar'
+            CHECK (procedencia_atribucion IN ('contemporanea', 'retrospectiva', 'sin_informar')),
+        procedencia_atribuida_en DATETIME,
+        fecha_inicio DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_cierre DATETIME,
+        origen TEXT NOT NULL DEFAULT 'aplicacion',
+        fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_actualizacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (cliente_id, ciclo)
+    )
+`, () => { });
+    db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_oportunidades_crm_cliente_activa
+    ON oportunidades_crm (cliente_id) WHERE estado = 'activa'
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_oportunidades_crm_etapa_estado
+    ON oportunidades_crm (estado, etapa)
+`, () => { });
+    db.run(`
+    CREATE TABLE IF NOT EXISTS oportunidad_asesoras (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        oportunidad_id INTEGER NOT NULL REFERENCES oportunidades_crm(id) ON DELETE CASCADE,
+        usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+        asesora_nombre_snapshot TEXT NOT NULL,
+        asesora_nombre_normalizado TEXT NOT NULL,
+        es_responsable INTEGER NOT NULL DEFAULT 0,
+        primera_cotizacion_id INTEGER REFERENCES cotizaciones(id) ON DELETE SET NULL,
+        primera_participacion DATETIME,
+        ultima_participacion DATETIME,
+        cantidad_cotizaciones INTEGER NOT NULL DEFAULT 0 CHECK (cantidad_cotizaciones >= 0),
+        origen TEXT NOT NULL DEFAULT 'cotizacion'
+            CHECK (origen IN ('cotizacion', 'asignacion_manual', 'backfill')),
+        fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_actualizacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (oportunidad_id, asesora_nombre_normalizado)
+    )
+`, () => { });
+    db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_oportunidad_asesora_responsable
+    ON oportunidad_asesoras (oportunidad_id) WHERE es_responsable = 1
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_oportunidad_asesoras_usuario
+    ON oportunidad_asesoras (usuario_id, oportunidad_id)
+`, () => { });
+    db.run(`
+    CREATE TABLE IF NOT EXISTS oportunidad_historial (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        oportunidad_id INTEGER NOT NULL REFERENCES oportunidades_crm(id) ON DELETE CASCADE,
+        accion TEXT NOT NULL CHECK (accion IN (
+            'backfill_creacion', 'creacion', 'cambio_etapa',
+            'reasignacion_responsable', 'vinculacion_cotizacion',
+            'cierre', 'reapertura'
+        )),
+        etapa_anterior TEXT,
+        etapa_nueva TEXT,
+        usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+        usuario_nombre_snapshot TEXT NOT NULL,
+        detalle TEXT NOT NULL DEFAULT '{}',
+        clave_idempotencia TEXT NOT NULL UNIQUE,
+        fecha DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_oportunidad_historial_oportunidad_fecha
+    ON oportunidad_historial (oportunidad_id, fecha DESC, id DESC)
+`, () => { });
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_cotizaciones_oportunidad_id
+    ON cotizaciones (oportunidad_id)
+`, () => { });
     db.run(`
     CREATE TABLE IF NOT EXISTS primer_contacto_identidades (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2264,6 +2389,23 @@ function buscarContextoCrmPrimerContacto(telefonoNormalizado, contextoCrm) {
     };
 }
 
+function normalizarEtapaOportunidad(etapa) {
+    const valor = String(etapa || "").trim();
+    return ETAPAS_OPORTUNIDAD.includes(valor) ? valor : "Inicio";
+}
+
+function etapaOportunidadALegacy(etapa) {
+    return etapa === "Inicio" ? "Nuevos" : normalizarEtapaOportunidad(etapa);
+}
+
+function normalizarTextoBusqueda(valor) {
+    return String(valor || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+}
+
 function resumirCotizacionesPrimerContacto(cotizaciones = []) {
     const cantidadesPorAsesora = new Map();
 
@@ -2858,6 +3000,186 @@ function datosIdentidadCotizacionDesdeBody(body = {}) {
     };
 }
 
+function nombreAsesoraNormalizado(nombre) {
+    return String(nombre || "").trim().toLowerCase();
+}
+
+async function atribucionProcedenciaNuevaOportunidad(tx, clienteId, fechaCotizacion) {
+    const contacto = await tx.get(
+        `
+        SELECT id, procedencia_id, fecha_creacion
+        FROM primer_contacto_identidades
+        WHERE cliente_id = ?
+          AND procedencia_id IS NOT NULL
+        ORDER BY fecha_creacion ASC, id ASC
+        LIMIT 1
+        `,
+        [clienteId]
+    );
+
+    if (!contacto) {
+        return {
+            procedenciaId: null,
+            contactoId: null,
+            atribucion: "sin_informar",
+            atribuidaEn: null
+        };
+    }
+
+    const retrospectiva = String(contacto.fecha_creacion || "")
+        > String(fechaCotizacion || "");
+
+    return {
+        procedenciaId: contacto.procedencia_id,
+        contactoId: contacto.id,
+        atribucion: retrospectiva ? "retrospectiva" : "contemporanea",
+        atribuidaEn: retrospectiva ? contacto.fecha_creacion : null
+    };
+}
+
+async function vincularCotizacionConOportunidad(tx, {
+    cotizacionId,
+    clienteId,
+    vendedora,
+    fechaCotizacion
+}) {
+    if (!clienteId) return null;
+
+    if (db.type === "postgres") {
+        await tx.get(
+            "SELECT pg_advisory_xact_lock(CAST(? AS BIGINT))",
+            [clienteId]
+        );
+    }
+
+    let oportunidad = await tx.get(
+        `
+        SELECT *
+        FROM oportunidades_crm
+        WHERE cliente_id = ? AND estado = 'activa'
+        ORDER BY ciclo DESC
+        LIMIT 1
+        `,
+        [clienteId]
+    );
+    const usuario = await obtenerUsuarioPorNombre(vendedora, tx);
+    let creada = false;
+
+    if (!oportunidad) {
+        const anterior = await tx.get(
+            `
+            SELECT id, ciclo
+            FROM oportunidades_crm
+            WHERE cliente_id = ?
+            ORDER BY ciclo DESC
+            LIMIT 1
+            `,
+            [clienteId]
+        );
+        const procedencia = await atribucionProcedenciaNuevaOportunidad(
+            tx,
+            clienteId,
+            fechaCotizacion
+        );
+        const insercion = await tx.run(
+            `
+            INSERT INTO oportunidades_crm (
+                cliente_id, oportunidad_anterior_id, ciclo, estado, etapa,
+                responsable_usuario_id, responsable_nombre_snapshot,
+                primera_cotizacion_id, procedencia_id,
+                primer_contacto_identidad_id, procedencia_atribucion,
+                procedencia_atribuida_en, fecha_inicio, origen
+            ) VALUES (?, ?, ?, 'activa', 'Inicio', ?, ?, ?, ?, ?, ?, ?, ?, 'aplicacion')
+            `,
+            [
+                clienteId,
+                anterior?.id || null,
+                Number(anterior?.ciclo || 0) + 1,
+                usuario?.id || null,
+                vendedora,
+                cotizacionId,
+                procedencia.procedenciaId,
+                procedencia.contactoId,
+                procedencia.atribucion,
+                procedencia.atribuidaEn,
+                fechaCotizacion || new Date().toISOString()
+            ]
+        );
+        oportunidad = await tx.get(
+            "SELECT * FROM oportunidades_crm WHERE id = ?",
+            [insercion.lastID]
+        );
+        creada = true;
+    }
+
+    await tx.run(
+        "UPDATE cotizaciones SET oportunidad_id = ? WHERE id = ?",
+        [oportunidad.id, cotizacionId]
+    );
+
+    const asesoraNormalizada = nombreAsesoraNormalizado(vendedora);
+    await tx.run(
+        `
+        INSERT INTO oportunidad_asesoras (
+            oportunidad_id, usuario_id, asesora_nombre_snapshot,
+            asesora_nombre_normalizado, es_responsable,
+            primera_cotizacion_id, primera_participacion,
+            ultima_participacion, cantidad_cotizaciones, origen
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'cotizacion')
+        ON CONFLICT (oportunidad_id, asesora_nombre_normalizado) DO UPDATE SET
+            usuario_id = COALESCE(oportunidad_asesoras.usuario_id, EXCLUDED.usuario_id),
+            ultima_participacion = EXCLUDED.ultima_participacion,
+            fecha_actualizacion = CURRENT_TIMESTAMP
+        `,
+        [
+            oportunidad.id,
+            usuario?.id || null,
+            vendedora,
+            asesoraNormalizada,
+            creada ? 1 : 0,
+            cotizacionId,
+            fechaCotizacion,
+            fechaCotizacion
+        ]
+    );
+    await tx.run(
+        `
+        UPDATE oportunidad_asesoras
+        SET cantidad_cotizaciones = (
+                SELECT COUNT(*)
+                FROM cotizaciones
+                WHERE cotizaciones.oportunidad_id = oportunidad_asesoras.oportunidad_id
+                  AND LOWER(TRIM(cotizaciones.vendedora)) = oportunidad_asesoras.asesora_nombre_normalizado
+            ),
+            fecha_actualizacion = CURRENT_TIMESTAMP
+        WHERE oportunidad_id = ?
+        `,
+        [oportunidad.id]
+    );
+
+    await tx.run(
+        `
+        INSERT INTO oportunidad_historial (
+            oportunidad_id, accion, etapa_anterior, etapa_nueva,
+            usuario_id, usuario_nombre_snapshot, detalle, clave_idempotencia
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (clave_idempotencia) DO NOTHING
+        `,
+        [
+            oportunidad.id,
+            creada ? "creacion" : "vinculacion_cotizacion",
+            null,
+            creada ? "Inicio" : null,
+            usuario?.id || null,
+            vendedora,
+            JSON.stringify({ cotizacion_id: cotizacionId }),
+            `${creada ? "creacion" : "vinculacion"}-cotizacion-${cotizacionId}`
+        ]
+    );
+
+    return oportunidad.id;
+}
+
 async function crearCotizacionDesdeRequest(req, archivos, clienteIdParam = null) {
     const {
         nombre,
@@ -2949,10 +3271,17 @@ async function crearCotizacionDesdeRequest(req, archivos, clienteIdParam = null)
 
             await insertarOpcionesCotizacion(tx, id, opcionesCotizacion);
             await insertarArchivosCotizacion(tx, id, archivos);
+            const oportunidadId = await vincularCotizacionConOportunidad(tx, {
+                cotizacionId: id,
+                clienteId: cliente?.id || null,
+                vendedora,
+                fechaCotizacion: new Date().toISOString()
+            });
 
         return {
             id,
-            cliente_id: cliente?.id || null
+            cliente_id: cliente?.id || null,
+            oportunidad_id: oportunidadId
         };
     });
 }
@@ -2970,7 +3299,8 @@ async function responderCreacionCotizacion(req, res, clienteIdParam = null) {
         res.json({
             success: true,
             id: resultado.id,
-            cliente_id: resultado.cliente_id
+            cliente_id: resultado.cliente_id,
+            oportunidad_id: resultado.oportunidad_id
         });
     } catch (error) {
         eliminarArchivosLocales(archivos);
@@ -4877,6 +5207,7 @@ async function obtenerCotizacionPermitida(req, cotizacionId, tx = null) {
         SELECT
             id,
             cliente_id,
+            oportunidad_id,
             nombre,
             vendedora,
             estado,
@@ -5163,6 +5494,48 @@ async function aplicarTransicionComercial(
             campos,
             valores
         );
+
+        if (esEstadoCierreNegativo(estadoSolicitado) && cotizacion.oportunidad_id) {
+            const otrasActivas = await tx.get(
+                `SELECT COUNT(*) AS total
+                 FROM cotizaciones
+                 WHERE oportunidad_id = ?
+                   AND id <> ?
+                   AND ${OPORTUNIDAD_ACTIVA_SQL}`,
+                [cotizacion.oportunidad_id, cotizacion.id]
+            );
+            if (Number(otrasActivas?.total || 0) === 0) {
+                const oportunidad = await tx.get(
+                    "SELECT etapa FROM oportunidades_crm WHERE id = ? AND estado = 'activa'",
+                    [cotizacion.oportunidad_id]
+                );
+                if (oportunidad) {
+                    const usuario = await obtenerUsuarioAutenticado(req, tx);
+                    await tx.run(
+                        `UPDATE oportunidades_crm
+                         SET estado = 'cerrada_perdida', fecha_cierre = CURRENT_TIMESTAMP,
+                             fecha_actualizacion = CURRENT_TIMESTAMP
+                         WHERE id = ?`,
+                        [cotizacion.oportunidad_id]
+                    );
+                    await tx.run(
+                        `INSERT INTO oportunidad_historial
+                         (oportunidad_id, accion, etapa_anterior, etapa_nueva,
+                          usuario_id, usuario_nombre_snapshot, detalle,
+                          clave_idempotencia)
+                         VALUES (?, 'cierre', ?, NULL, ?, ?, ?, ?)`,
+                        [
+                            cotizacion.oportunidad_id,
+                            oportunidad.etapa,
+                            usuario?.id || null,
+                            req.user.usuario,
+                            JSON.stringify({ estado_cotizacion: estadoSolicitado }),
+                            `cierre-${cotizacion.oportunidad_id}-${cotizacion.id}-${Date.now()}`
+                        ]
+                    );
+                }
+            }
+        }
 
         return {
             estado: estadoSolicitado,
@@ -5462,44 +5835,142 @@ async function obtenerEstadisticasInicio(req) {
 }
 
 async function obtenerPipelineInicio(req) {
-    const condiciones = [OPORTUNIDAD_ACTIVA_SQL];
+    const condiciones = ["oportunidades_crm.estado = 'activa'"];
     const parametros = [];
 
-    agregarFiltroRol(req, condiciones, parametros);
+    if (req.user.rol !== "admin") {
+        condiciones.push(`
+            EXISTS (
+                SELECT 1
+                FROM oportunidad_asesoras permiso
+                WHERE permiso.oportunidad_id = oportunidades_crm.id
+                  AND permiso.asesora_nombre_normalizado = LOWER(TRIM(?))
+            )
+        `);
+        parametros.push(req.user.usuario);
+    } else if (String(req.query.asesora || "").trim()) {
+        condiciones.push(`
+            EXISTS (
+                SELECT 1
+                FROM oportunidad_asesoras filtro_asesora
+                WHERE filtro_asesora.oportunidad_id = oportunidades_crm.id
+                  AND filtro_asesora.asesora_nombre_normalizado = LOWER(TRIM(?))
+            )
+        `);
+        parametros.push(String(req.query.asesora).trim());
+    }
 
-    const rows = await dbAllAsync(
+    const etapaFiltro = String(req.query.etapa || "").trim();
+    if (etapaFiltro) {
+        if (!ETAPAS_OPORTUNIDAD.includes(etapaFiltro)) {
+            throw errorHttp(400, "Etapa inválida");
+        }
+        condiciones.push("oportunidades_crm.etapa = ?");
+        parametros.push(etapaFiltro);
+    }
+
+    let oportunidades = await dbAllAsync(
         `
         SELECT
-            cotizaciones.id,
-            cotizaciones.cliente_id,
-            cotizaciones.nombre,
-            cotizaciones.celular,
-            cotizaciones.plan,
-            cotizaciones.fecha,
-            cotizaciones.fecha_seguimiento,
-            cotizaciones.vendedora,
-            cotizaciones.fecha_alta,
-            cotizaciones.estado_posventa,
-            ${ESTADO_COTIZACION_SQL} AS estado,
-            COALESCE(NULLIF(cotizaciones.etapa_pipeline, ''), 'Nuevos') AS etapa_pipeline
-        FROM cotizaciones
-        ${condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : ""}
-        ORDER BY cotizaciones.fecha DESC
+            oportunidades_crm.id,
+            oportunidades_crm.cliente_id,
+            oportunidades_crm.ciclo,
+            oportunidades_crm.estado,
+            oportunidades_crm.etapa,
+            oportunidades_crm.responsable_usuario_id,
+            oportunidades_crm.responsable_nombre_snapshot AS responsable,
+            oportunidades_crm.primera_cotizacion_id,
+            oportunidades_crm.fecha_inicio,
+            oportunidades_crm.procedencia_atribucion,
+            clientes.nombre,
+            clientes.dni,
+            COALESCE(clientes.telefono_normalizado, clientes.celular) AS celular,
+            procedencias.nombre AS procedencia
+        FROM oportunidades_crm
+        JOIN clientes ON clientes.id = oportunidades_crm.cliente_id
+        LEFT JOIN procedencias ON procedencias.id = oportunidades_crm.procedencia_id
+        WHERE ${condiciones.join(" AND ")}
+        ORDER BY oportunidades_crm.fecha_actualizacion DESC,
+                 oportunidades_crm.fecha_inicio DESC,
+                 oportunidades_crm.id DESC
         `,
         parametros
     );
 
-    return ETAPAS_PIPELINE.map(etapa => ({
-        etapa,
-        cotizaciones: rows
-            .filter(row => normalizarEtapaPipeline(row.etapa_pipeline) === etapa)
-            .map(row => ({
-                ...row,
-                etapa_pipeline: normalizarEtapaPipeline(row.etapa_pipeline),
-                ...(row.fecha_alta || row.estado_posventa
-                    ? detalleCalculadoPosventa(row)
+    const busqueda = String(req.query.busqueda || "").trim();
+    if (busqueda) {
+        const texto = normalizarTextoBusqueda(busqueda);
+        const digitos = busqueda.replace(/\D/g, "");
+        const telefono = normalizarTelefono(busqueda);
+        const dni = normalizarDniIdentidad(busqueda);
+
+        oportunidades = oportunidades.filter(oportunidad => {
+            const nombreCoincide = texto
+                && normalizarTextoBusqueda(oportunidad.nombre).includes(texto);
+            const telefonoCoincide = telefono.length >= 8
+                && normalizarTelefono(oportunidad.celular) === telefono;
+            const dniCoincide = digitos.length >= 7
+                && normalizarDniIdentidad(oportunidad.dni) === dni;
+            return nombreCoincide || telefonoCoincide || dniCoincide;
+        });
+    }
+
+    const ids = oportunidades.map(item => item.id);
+    if (!ids.length) {
+        return ETAPAS_OPORTUNIDAD.map(etapa => ({ etapa, oportunidades: [] }));
+    }
+    const marcadores = ids.map(() => "?").join(", ");
+    const [participantes, cotizaciones] = await Promise.all([
+        dbAllAsync(
+            `
+            SELECT oportunidad_id, usuario_id, asesora_nombre_snapshot AS nombre,
+                   es_responsable, primera_participacion, ultima_participacion,
+                   cantidad_cotizaciones
+            FROM oportunidad_asesoras
+            WHERE oportunidad_id IN (${marcadores})
+            ORDER BY es_responsable DESC, primera_participacion ASC, id ASC
+            `,
+            ids
+        ),
+        dbAllAsync(
+            `
+            SELECT id, oportunidad_id, nombre, dni, celular, plan, fecha,
+                   fecha_seguimiento, vendedora, fecha_alta, estado_posventa,
+                   ${ESTADO_COTIZACION_SQL} AS estado,
+                   etapa_pipeline
+            FROM cotizaciones
+            WHERE oportunidad_id IN (${marcadores})
+            ORDER BY fecha ASC, id ASC
+            `,
+            ids
+        )
+    ]);
+
+    oportunidades = oportunidades.map(oportunidad => {
+        const cotizacionesOportunidad = cotizaciones
+            .filter(cotizacion => String(cotizacion.oportunidad_id) === String(oportunidad.id))
+            .map(cotizacion => ({
+                ...cotizacion,
+                puede_ver_detalle: req.user.rol === "admin"
+                    || cotizacion.vendedora === req.user.usuario,
+                ...(cotizacion.fecha_alta || cotizacion.estado_posventa
+                    ? detalleCalculadoPosventa(cotizacion)
                     : {})
-            }))
+            }));
+        return {
+            ...oportunidad,
+            etapa: normalizarEtapaOportunidad(oportunidad.etapa),
+            participantes: participantes.filter(
+                participante => String(participante.oportunidad_id) === String(oportunidad.id)
+            ),
+            cotizaciones: cotizacionesOportunidad,
+            cantidad_cotizaciones: cotizacionesOportunidad.length
+        };
+    });
+
+    return ETAPAS_OPORTUNIDAD.map(etapa => ({
+        etapa,
+        oportunidades: oportunidades.filter(item => item.etapa === etapa)
     }));
 }
 
@@ -5543,10 +6014,12 @@ app.get("/inicio/resumen", verificarToken, async (req, res) => {
             estadisticas,
             pipeline,
             tareas,
-            etapas: ETAPAS_PIPELINE
+            etapas: ETAPAS_OPORTUNIDAD
         });
     } catch (error) {
-        res.status(500).json({ error: "No se pudo cargar el inicio" });
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo cargar el inicio"
+        });
     }
 });
 
@@ -5554,9 +6027,224 @@ app.get("/pipeline", verificarToken, async (req, res) => {
     try {
         res.json(await obtenerPipelineInicio(req));
     } catch (error) {
-        res.status(500).json({ error: "No se pudo cargar el pipeline" });
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo cargar el pipeline"
+        });
     }
 });
+
+async function obtenerOportunidadPermitida(req, oportunidadId, tx = null, bloquear = false) {
+    if (!/^\d+$/.test(String(oportunidadId || ""))) {
+        throw errorHttp(400, "Oportunidad inválida");
+    }
+    const executor = tx || { get: dbGetAsync };
+    const bloqueo = bloquear && db.type === "postgres" ? "FOR UPDATE" : "";
+    const oportunidad = await executor.get(
+        `
+        SELECT oportunidades_crm.*
+        FROM oportunidades_crm
+        WHERE oportunidades_crm.id = ?
+          AND (
+            ? = 'admin'
+            OR EXISTS (
+                SELECT 1
+                FROM oportunidad_asesoras permiso
+                WHERE permiso.oportunidad_id = oportunidades_crm.id
+                  AND permiso.asesora_nombre_normalizado = LOWER(TRIM(?))
+            )
+          )
+        ${bloqueo}
+        `,
+        [oportunidadId, req.user.rol, req.user.usuario]
+    );
+
+    if (!oportunidad) throw errorHttp(404, "Oportunidad no encontrada");
+    return oportunidad;
+}
+
+async function cambiarEtapaOportunidad(tx, req, oportunidad, etapaNueva) {
+    const etapaAnterior = normalizarEtapaOportunidad(oportunidad.etapa);
+    if (etapaAnterior === etapaNueva) {
+        return { etapa: etapaNueva, sin_cambios: true };
+    }
+
+    await tx.run(
+        `UPDATE oportunidades_crm
+         SET etapa = ?, fecha_actualizacion = CURRENT_TIMESTAMP
+         WHERE id = ? AND estado = 'activa'`,
+        [etapaNueva, oportunidad.id]
+    );
+    const etapaLegacy = etapaOportunidadALegacy(etapaNueva);
+    let resultadoPosventa = {};
+    if (oportunidad.primera_cotizacion_id) {
+        const cotizacionPrincipal = await tx.get(
+            `SELECT id, cliente_id, nombre, vendedora, estado, etapa_pipeline,
+                    fecha_alta, estado_posventa
+             FROM cotizaciones WHERE id = ?`,
+            [oportunidad.primera_cotizacion_id]
+        );
+        if (cotizacionPrincipal) {
+            resultadoPosventa = await aplicarTransicionComercial(
+                tx,
+                req,
+                cotizacionPrincipal,
+                { etapaSolicitada: etapaLegacy }
+            );
+        }
+    }
+    await tx.run(
+        "UPDATE cotizaciones SET etapa_pipeline = ? WHERE oportunidad_id = ?",
+        [etapaLegacy, oportunidad.id]
+    );
+
+    const usuario = await obtenerUsuarioAutenticado(req, tx);
+    await tx.run(
+        `
+        INSERT INTO oportunidad_historial (
+            oportunidad_id, accion, etapa_anterior, etapa_nueva,
+            usuario_id, usuario_nombre_snapshot, detalle, clave_idempotencia
+        ) VALUES (?, 'cambio_etapa', ?, ?, ?, ?, ?, ?)
+        `,
+        [
+            oportunidad.id,
+            etapaAnterior,
+            etapaNueva,
+            usuario?.id || null,
+            req.user.usuario,
+            JSON.stringify({ origen: "pipeline_agrupado" }),
+            `cambio-etapa-${oportunidad.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        ]
+    );
+
+    return {
+        etapa: etapaNueva,
+        cotizacion_principal_id: oportunidad.primera_cotizacion_id,
+        ...resultadoPosventa
+    };
+}
+
+app.put("/oportunidades/:id/etapa", verificarToken, async (req, res) => {
+    const etapa = String(req.body.etapa || "").trim();
+    if (!ETAPAS_OPORTUNIDAD.includes(etapa)) {
+        return res.status(400).json({ error: "Etapa inválida" });
+    }
+
+    try {
+        const resultado = await db.transaction(async tx => {
+            const oportunidad = await obtenerOportunidadPermitida(
+                req,
+                req.params.id,
+                tx,
+                true
+            );
+            if (oportunidad.estado !== "activa") {
+                throw errorHttp(409, "La oportunidad ya no está activa");
+            }
+            return cambiarEtapaOportunidad(tx, req, oportunidad, etapa);
+        });
+        res.json({ success: true, ...resultado });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo actualizar la etapa"
+        });
+    }
+});
+
+app.get("/oportunidades/:id/historial", verificarToken, async (req, res) => {
+    try {
+        const oportunidad = await obtenerOportunidadPermitida(req, req.params.id);
+        const historial = await dbAllAsync(
+            `SELECT id, accion, etapa_anterior, etapa_nueva,
+                    usuario_nombre_snapshot AS usuario, detalle, fecha
+             FROM oportunidad_historial
+             WHERE oportunidad_id = ?
+             ORDER BY fecha DESC, id DESC`,
+            [oportunidad.id]
+        );
+        res.json(historial.map(item => ({
+            ...item,
+            detalle: typeof item.detalle === "string"
+                ? JSON.parse(item.detalle || "{}")
+                : item.detalle
+        })));
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo cargar el historial"
+        });
+    }
+});
+
+app.get(
+    "/admin/oportunidades-sombra/comparacion",
+    verificarToken,
+    async (req, res) => {
+        if (!OPORTUNIDADES_SOMBRA_HABILITADA) {
+            return res.status(404).json({ error: "Recurso no encontrado" });
+        }
+
+        if (req.user.rol !== "admin") {
+            return res.status(403).json({ error: "No autorizado" });
+        }
+
+        try {
+            const [cotizaciones, identidadesPrimerContacto, usuarios] =
+                await Promise.all([
+                    dbAllAsync(`
+                        SELECT
+                            id,
+                            cliente_id,
+                            fecha,
+                            vendedora,
+                            etapa_pipeline,
+                            ${ESTADO_COTIZACION_SQL} AS estado
+                        FROM cotizaciones
+                        ORDER BY fecha ASC, id ASC
+                    `),
+                    dbAllAsync(`
+                        SELECT
+                            identidades.id,
+                            identidades.cliente_id,
+                            identidades.procedencia_id,
+                            identidades.fecha_creacion,
+                            procedencias.codigo AS procedencia_codigo,
+                            procedencias.nombre AS procedencia_nombre
+                        FROM primer_contacto_identidades identidades
+                        LEFT JOIN procedencias
+                            ON procedencias.id = identidades.procedencia_id
+                        WHERE identidades.cliente_id IS NOT NULL
+                        ORDER BY identidades.cliente_id, identidades.id
+                    `),
+                    dbAllAsync(`
+                        SELECT id, usuario, rol
+                        FROM usuarios
+                        ORDER BY id
+                    `)
+                ]);
+            const simulacion = simularOportunidades({
+                cotizaciones,
+                identidadesPrimerContacto,
+                usuarios
+            });
+
+            res.json({
+                modo: "sombra_solo_lectura",
+                habilitada_por_configuracion: true,
+                pipeline_actual: {
+                    tarjetas_activas: cotizaciones.filter(
+                        cotizacionActivaOportunidad
+                    ).length,
+                    etapas: ETAPAS_PIPELINE
+                },
+                simulacion
+            });
+        } catch (error) {
+            console.error("[oportunidades-sombra]", error);
+            res.status(500).json({
+                error: "No se pudo generar la comparación en sombra"
+            });
+        }
+    }
+);
 
 app.get("/cotizaciones/:id/telefono-asesora", verificarToken, async (req, res) => {
     try {
@@ -5588,6 +6276,24 @@ app.put("/cotizaciones/:id/etapa-pipeline", verificarToken, async (req, res) => 
                 req.params.id,
                 tx
             );
+
+            if (cotizacion.oportunidad_id) {
+                const oportunidad = await obtenerOportunidadPermitida(
+                    req,
+                    cotizacion.oportunidad_id,
+                    tx,
+                    true
+                );
+                const etapaOportunidad = ["Nuevos", "Contactados"].includes(etapa)
+                    ? "Inicio"
+                    : etapa;
+                return cambiarEtapaOportunidad(
+                    tx,
+                    req,
+                    oportunidad,
+                    etapaOportunidad
+                );
+            }
 
             return aplicarTransicionComercial(tx, req, cotizacion, {
                 etapaSolicitada: etapa

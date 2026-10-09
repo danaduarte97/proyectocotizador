@@ -63,17 +63,39 @@ function authOnlyHeaders(extra = {}) {
     };
 }
 
-// SI NO HAY TOKEN, REDIRIGE A LOGIN
-const token = localStorage.getItem("token");
-if (!token) {
-    window.location.href = "/login.html";
+function tokenSesionVigente() {
+    const payload = obtenerPayload();
+    return Boolean(
+        payload
+        && Number(payload.exp || 0) * 1000 > Date.now()
+    );
+}
+
+let redireccionandoPorSesion = false;
+
+function redirigirALoginPorSesion(mensaje = "La sesión venció. Ingresá nuevamente.") {
+    if (redireccionandoPorSesion) return;
+    redireccionandoPorSesion = true;
+    localStorage.removeItem("token");
+    localStorage.removeItem("usuario");
+    localStorage.removeItem("rol");
+    sessionStorage.setItem("mensajeSesion", mensaje);
+    window.location.replace("/login.html");
+}
+
+// SI NO HAY TOKEN O YA VENCIO, REDIRIGE ANTES DE CARGAR EL CRM.
+if (!tokenSesionVigente()) {
+    redirigirALoginPorSesion();
 }
 
 // 🚨 MANEJO GLOBAL DE ERRORES
 async function manejarError(res) {
-    if (res.status === 401 || res.status === 403) {
-        mostrarToast("Sesión expirada o no autorizada", "error");
-        logout();
+    if (res.status === 401) {
+        redirigirALoginPorSesion();
+        return true;
+    }
+    if (res.status === 403) {
+        mostrarToast("No tenés permiso para realizar esta acción", "error");
         return true;
     }
     return false;
@@ -1134,8 +1156,7 @@ async function refrescarVistaCotizaciones() {
 let busquedaCotizacionActual = 0;
 let busquedaInicioActual = 0;
 const ETAPAS_PIPELINE = [
-    "Nuevos",
-    "Contactados",
+    "Inicio",
     "Interesados",
     "Documentación",
     "Auditoría",
@@ -1150,9 +1171,13 @@ let inicioMesActivo = new Date();
 let inicioFechaSeleccionada = "";
 let inicioCargaCompleta = false;
 let inicioAsesoraSeleccionada = "";
+let inicioBusquedaPipeline = "";
+let inicioEtapaPipeline = "";
+let temporizadorBusquedaPipeline = null;
 let estadoModalTareas = "pendiente";
 let tareasModalActuales = [];
 let botonOrigenModalTareas = null;
+let botonOrigenAgendaInicio = null;
 
 function actualizarSelectorAsesorasInicio(usuarios = usuariosCargados) {
     const control = document.getElementById("inicioAsesoraControl");
@@ -1191,10 +1216,41 @@ function agregarQueryAsesoraInicio(url) {
     return `${url}${url.includes("?") ? "&" : "?"}${filtro}`;
 }
 
+function agregarFiltrosPipeline(url) {
+    const params = new URLSearchParams();
+    if (esAdmin() && inicioAsesoraSeleccionada) {
+        params.set("asesora", inicioAsesoraSeleccionada);
+    }
+    if (inicioBusquedaPipeline) params.set("busqueda", inicioBusquedaPipeline);
+    if (inicioEtapaPipeline) params.set("etapa", inicioEtapaPipeline);
+    const filtro = params.toString();
+    if (!filtro) return url;
+    return `${url}${url.includes("?") ? "&" : "?"}${filtro}`;
+}
+
+function sincronizarFiltrosPipelineDesdeDom() {
+    inicioBusquedaPipeline = document.getElementById("inicioBusquedaPipeline")?.value.trim() || "";
+    inicioEtapaPipeline = document.getElementById("inicioEtapaPipeline")?.value || "";
+}
+
 async function cambiarAsesoraInicio() {
     inicioAsesoraSeleccionada = document.getElementById("inicioAsesora")?.value || "";
     inicioFechaSeleccionada = "";
+    sincronizarFiltrosPipelineDesdeDom();
     await cargarInicioCrm();
+}
+
+async function cambiarFiltrosPipeline() {
+    sincronizarFiltrosPipelineDesdeDom();
+    await cargarInicioCrm();
+}
+
+function programarBusquedaPipeline() {
+    clearTimeout(temporizadorBusquedaPipeline);
+    temporizadorBusquedaPipeline = setTimeout(async () => {
+        sincronizarFiltrosPipelineDesdeDom();
+        await cargarInicioCrm(true);
+    }, 280);
 }
 
 function etapaClase(etapa) {
@@ -1739,7 +1795,8 @@ function nuevaCotizacionDesdeInicio(clienteId, terminoCodificado) {
 
 function todasLasCotizacionesPipeline() {
     return (inicioDatosCrm.pipeline || [])
-        .flatMap(grupo => grupo.cotizaciones || []);
+        .flatMap(grupo => grupo.oportunidades || [])
+        .flatMap(oportunidad => oportunidad.cotizaciones || []);
 }
 
 function mostrarEstadoInicio(tipo = "", mensaje = "") {
@@ -1790,17 +1847,17 @@ function mostrarErrorInicio(mensaje) {
     mostrarEstadoInicio("error", mensaje);
 }
 
-function renderSelectorEtapa(cotizacion) {
+function renderSelectorEtapa(oportunidad) {
     return `
         <label class="pipeline-selector" data-no-drag>
             <select
                 data-no-drag
                 data-select-personalizado
                 aria-label="Etapa"
-                onchange="cambiarEtapaPipeline(${cotizacion.id}, this.value)"
+                onchange="cambiarEtapaPipeline(${oportunidad.id}, this.value)"
             >
                 ${ETAPAS_PIPELINE.map(etapa => `
-                    <option value="${etapa}" ${etapa === cotizacion.etapa_pipeline ? "selected" : ""}>
+                    <option value="${etapa}" ${etapa === oportunidad.etapa ? "selected" : ""}>
                         ${etapa}
                     </option>
                 `).join("")}
@@ -1840,40 +1897,135 @@ function renderProximaTareaPipeline(cotizacionId) {
     return `<p class="pipeline-proxima-tarea">${texto}</p>`;
 }
 
-function renderTelefonoWhatsappPipeline(celular) {
+function renderTelefonoPipeline(celular) {
     const telefonoVisible = celular || "Sin tel&eacute;fono";
-    return `<p class="pipeline-telefono">${escaparHtml(telefonoVisible)}</p>`;
+
+    if (!celular) {
+        return `<p class="pipeline-telefono">${telefonoVisible}</p>`;
+    }
+
+    return `
+        <div class="pipeline-telefono" data-no-drag>
+            <span>${escaparHtml(telefonoVisible)}</span>
+            <button type="button" class="pipeline-copiar-telefono" data-no-drag
+                data-telefono="${escaparHtml(celular)}"
+                aria-label="Copiar teléfono ${escaparHtml(telefonoVisible)}"
+                title="Copiar teléfono"
+                onclick="event.stopPropagation(); copiarTelefonoPipeline(this)"
+                onpointerdown="event.stopPropagation()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="9" y="9" width="11" height="11" rx="2" />
+                    <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" />
+                </svg>
+                <span>Copiar</span>
+            </button>
+        </div>
+    `;
 }
 
-function renderPipelineCard(cotizacion) {
-    const etapa = cotizacion.etapa_pipeline || "Nuevos";
-    const plan = cotizacion.plan || "-";
+async function copiarTelefonoPipeline(boton) {
+    const telefono = boton?.dataset.telefono || "";
+
+    if (!telefono) return;
+
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(telefono);
+        } else {
+            const campo = document.createElement("textarea");
+            campo.value = telefono;
+            campo.setAttribute("readonly", "");
+            campo.style.position = "fixed";
+            campo.style.opacity = "0";
+            document.body.appendChild(campo);
+            campo.select();
+            document.execCommand("copy");
+            campo.remove();
+        }
+
+        const etiqueta = boton.querySelector("span");
+        const textoAnterior = etiqueta?.textContent || "Copiar";
+        boton.classList.add("copiado");
+        if (etiqueta) etiqueta.textContent = "Copiado";
+        mostrarToast("Teléfono copiado", "success");
+
+        window.setTimeout(() => {
+            boton.classList.remove("copiado");
+            if (etiqueta) etiqueta.textContent = textoAnterior;
+        }, 1600);
+    } catch (error) {
+        mostrarToast("No se pudo copiar el teléfono", "error");
+    }
+}
+
+function renderProximaTareaOportunidad(oportunidad) {
+    const ids = new Set(
+        (oportunidad.cotizaciones || []).map(cotizacion => String(cotizacion.id))
+    );
+    const tarea = (inicioDatosCrm.tareas || [])
+        .filter(item => item.estado === "pendiente" && ids.has(String(item.cotizacion_id || "")))
+        .sort((a, b) => {
+            const fechaA = `${String(a.fecha).slice(0, 10)}T${a.hora || "23:59"}`;
+            const fechaB = `${String(b.fecha).slice(0, 10)}T${b.hora || "23:59"}`;
+            return fechaA.localeCompare(fechaB);
+        })[0];
+    return tarea ? renderProximaTareaPipeline(tarea.cotizacion_id) : "";
+}
+
+function renderCotizacionesOportunidad(oportunidad) {
+    const cantidad = Number(oportunidad.cantidad_cotizaciones || 0);
+    return `
+        <details class="pipeline-cotizaciones" data-no-drag>
+            <summary>${cantidad} ${cantidad === 1 ? "cotización" : "cotizaciones"}</summary>
+            <div>
+                ${(oportunidad.cotizaciones || []).map(cotizacion => `
+                    <article class="pipeline-cotizacion-item">
+                        <span>${escaparHtml(cotizacion.plan || "Sin plan")}</span>
+                        <small>${escaparHtml(cotizacion.vendedora || "-")} · ${formatearFechaArgentina(cotizacion.fecha)}</small>
+                        ${cotizacion.puede_ver_detalle ? `
+                            <button type="button" data-no-drag
+                                onclick="abrirDetalleCotizacionPipeline(${cotizacion.id}, this)">
+                                Ver cotización
+                            </button>
+                        ` : `<small>Detalle privado de la asesora</small>`}
+                    </article>
+                `).join("")}
+            </div>
+        </details>
+    `;
+}
+
+function renderPipelineCard(oportunidad) {
+    const etapa = oportunidad.etapa || "Inicio";
+    const principal = (oportunidad.cotizaciones || []).find(
+        cotizacion => String(cotizacion.id) === String(oportunidad.primera_cotizacion_id)
+    ) || oportunidad.cotizaciones?.[0] || {};
+    const participantes = (oportunidad.participantes || []).map(participante => `
+        <span class="pipeline-participante ${participante.es_responsable ? "es-responsable" : ""}">
+            ${escaparHtml(participante.nombre)}${participante.es_responsable ? " · Responsable" : ""}
+        </span>
+    `).join("");
 
     return `
         <article
-            class="pipeline-card ${etapaClase(etapa)} ${claseColorPosventa(cotizacion)}"
+            class="pipeline-card ${etapaClase(etapa)} ${claseColorPosventa(principal)}"
             draggable="true"
-            data-cotizacion-id="${cotizacion.id}"
-            ondragstart="iniciarArrastrePipeline(event, ${cotizacion.id})"
+            data-oportunidad-id="${oportunidad.id}"
+            ondragstart="iniciarArrastrePipeline(event, ${oportunidad.id})"
         >
             <div class="pipeline-card-head">
-                <strong>${cotizacion.nombre || "Sin nombre"}</strong>
+                <strong>${escaparHtml(oportunidad.nombre || "Sin nombre")}</strong>
                 <span>${etapa}</span>
             </div>
-            <p>${plan}</p>
-            ${renderTelefonoWhatsappPipeline(cotizacion.celular)}
-            ${renderIndicadorPosventaPipeline(cotizacion)}
-            ${renderProximaTareaPipeline(cotizacion.id)}
-            ${esAdmin() ? `<p>Vendedora: ${cotizacion.vendedora || "-"}</p>` : ""}
-            ${renderSelectorEtapa(cotizacion)}
-            <button
-                type="button"
-                data-no-drag
-                data-abrir-cotizacion="${cotizacion.id}"
-                onclick="abrirDetalleCotizacionPipeline(${cotizacion.id}, this)"
-            >
-                Ver detalle
-            </button>
+            ${renderTelefonoPipeline(oportunidad.celular)}
+            ${oportunidad.dni ? `<p>DNI ${escaparHtml(oportunidad.dni)}</p>` : ""}
+            ${oportunidad.procedencia ? `<p>Procedencia: ${escaparHtml(oportunidad.procedencia)}</p>` : ""}
+            <div class="pipeline-participantes">${participantes}</div>
+            ${renderIndicadorPosventaPipeline(principal)}
+            ${renderProximaTareaOportunidad(oportunidad)}
+            ${renderCotizacionesOportunidad(oportunidad)}
+            ${renderSelectorEtapa(oportunidad)}
         </article>
     `;
 }
@@ -2200,12 +2352,12 @@ function renderPipelineInicio(pipeline = [], estado = "ready") {
 
     contenedor.innerHTML = ETAPAS_PIPELINE.map(etapa => {
         const grupo = pipeline.find(item => item.etapa === etapa) || {
-            cotizaciones: []
+            oportunidades: []
         };
         const mensajeVacio = estado === "error"
             ? "Datos no disponibles"
             : "Sin oportunidades";
-        const contador = estado === "ready" ? grupo.cotizaciones.length : "—";
+        const contador = estado === "ready" ? grupo.oportunidades.length : "—";
         const contenido = estado === "loading"
             ? `
                 <div class="pipeline-loading" aria-label="Cargando oportunidades">
@@ -2213,8 +2365,8 @@ function renderPipelineInicio(pipeline = [], estado = "ready") {
                     <span class="pipeline-skeleton" aria-hidden="true"></span>
                 </div>
             `
-            : grupo.cotizaciones.length
-                ? grupo.cotizaciones.map(renderPipelineCard).join("")
+            : grupo.oportunidades.length
+                ? grupo.oportunidades.map(renderPipelineCard).join("")
                 : `<p class="pipeline-empty">${mensajeVacio}</p>`;
 
         return `
@@ -2236,13 +2388,13 @@ function renderPipelineInicio(pipeline = [], estado = "ready") {
     }).join("");
 }
 
-function iniciarArrastrePipeline(event, cotizacionId) {
+function iniciarArrastrePipeline(event, oportunidadId) {
     if (event.target.closest("[data-no-drag]")) {
         event.preventDefault();
         return;
     }
 
-    event.dataTransfer.setData("text/plain", String(cotizacionId));
+    event.dataTransfer.setData("text/plain", String(oportunidadId));
     event.dataTransfer.effectAllowed = "move";
 }
 
@@ -2253,21 +2405,21 @@ function permitirSoltarPipeline(event) {
 
 async function soltarPipeline(event, etapa) {
     event.preventDefault();
-    const cotizacionId = event.dataTransfer.getData("text/plain");
+    const oportunidadId = event.dataTransfer.getData("text/plain");
 
-    if (!cotizacionId) return;
+    if (!oportunidadId) return;
 
-    await cambiarEtapaPipeline(cotizacionId, etapa);
+    await cambiarEtapaPipeline(oportunidadId, etapa);
 }
 
-async function cambiarEtapaPipeline(cotizacionId, etapa) {
+async function cambiarEtapaPipeline(oportunidadId, etapa) {
     mostrarLoader();
 
     try {
-        const res = await fetch(`/cotizaciones/${cotizacionId}/etapa-pipeline`, {
+        const res = await fetch(`/oportunidades/${oportunidadId}/etapa`, {
             method: "PUT",
             headers: authHeaders(),
-            body: JSON.stringify({ etapa_pipeline: etapa })
+            body: JSON.stringify({ etapa })
         });
 
         if (await manejarError(res)) return;
@@ -2282,6 +2434,8 @@ async function cambiarEtapaPipeline(cotizacionId, etapa) {
         await actualizarInicioCoordinado();
 
         if (etapa === "Afiliados" && datos.requiere_fecha_alta) {
+            const cotizacionId = datos.cotizacion_principal_id;
+            if (!cotizacionId) return;
             const botonFecha = document.querySelector(
                 `[data-cargar-fecha-alta="${cotizacionId}"]`
             );
@@ -2633,13 +2787,36 @@ function llenarSelectCotizacionesTarea(valor = "") {
 }
 
 function actualizarBloqueoModalesInicio() {
+    const modalAgendaAbierto = !document.getElementById("inicioAgendaModal")?.hidden;
     const modalTareaAbierto = !document.getElementById("inicioTareaModal")?.hidden;
     const modalTodasAbierto = !document.getElementById("todasTareasModal")?.hidden;
 
     document.body.classList.toggle(
         "inicio-modal-abierto",
-        modalTareaAbierto || modalTodasAbierto
+        modalAgendaAbierto || modalTareaAbierto || modalTodasAbierto
     );
+}
+
+function abrirAgendaInicio(boton = document.activeElement) {
+    const modal = document.getElementById("inicioAgendaModal");
+
+    if (!modal) return;
+
+    botonOrigenAgendaInicio = boton;
+    modal.hidden = false;
+    actualizarBloqueoModalesInicio();
+    renderCalendarioInicio();
+    renderTareasInicio();
+    requestAnimationFrame(() => modal.querySelector(".inicio-dialog-close")?.focus());
+}
+
+function cerrarAgendaInicio() {
+    const modal = document.getElementById("inicioAgendaModal");
+
+    if (modal) modal.hidden = true;
+    actualizarBloqueoModalesInicio();
+    botonOrigenAgendaInicio?.focus?.();
+    botonOrigenAgendaInicio = null;
 }
 
 function abrirFormularioTarea(tarea = null, fechaInicial = inicioFechaSeleccionada) {
@@ -2911,7 +3088,7 @@ async function cargarInicioCrm(silencioso = false) {
 
     try {
         const [resumenRes, pendientesRes, mesRes] = await Promise.all([
-            fetch(agregarQueryAsesoraInicio("/inicio/resumen"), { headers: authHeaders() }),
+            fetch(agregarFiltrosPipeline("/inicio/resumen"), { headers: authHeaders() }),
             fetch(agregarQueryAsesoraInicio("/tareas?estado=pendiente"), { headers: authHeaders() }),
             fetch(agregarQueryAsesoraInicio(`/tareas?mes=${mesIso(inicioMesActivo)}`), {
                 headers: authHeaders()
@@ -5617,6 +5794,8 @@ window.onload = function () {
                 cerrarFormularioTarea();
             } else if (!document.getElementById("todasTareasModal")?.hidden) {
                 cerrarModalTodasTareas();
+            } else if (!document.getElementById("inicioAgendaModal")?.hidden) {
+                cerrarAgendaInicio();
             }
         }
     });

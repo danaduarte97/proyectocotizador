@@ -21,6 +21,10 @@ fs.copyFileSync(
     path.join(repoRoot, "lib", "posventa.js"),
     path.join(tempDir, "lib", "posventa.js")
 );
+fs.copyFileSync(
+    path.join(repoRoot, "lib", "oportunidades.js"),
+    path.join(tempDir, "lib", "oportunidades.js")
+);
 
 const server = spawn(process.execPath, [path.join(tempDir, "server.js")], {
     cwd: tempDir,

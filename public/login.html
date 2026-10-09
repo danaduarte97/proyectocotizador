@@ -47,6 +47,12 @@
 
     <script src="select-personalizado.js"></script>
     <script>
+        const mensajeSesion = sessionStorage.getItem("mensajeSesion");
+        if (mensajeSesion) {
+            sessionStorage.removeItem("mensajeSesion");
+            requestAnimationFrame(() => mostrarMensajeLogin(mensajeSesion));
+        }
+
         function mostrarLoader() {
             const loader = document.getElementById("loaderGlobal");
 

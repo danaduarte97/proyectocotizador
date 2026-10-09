@@ -3,7 +3,13 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "sass": "sass --watch scss/style.scss public/style.css"
+    "sass": "sass --watch scss/style.scss public/style.css",
+    "test:oportunidades:fase-a": "node scripts/test-oportunidades-fase-a.js && node scripts/test-oportunidades-sombra-api-sqlite.js",
+    "test:oportunidades:bloque-2": "node scripts/test-oportunidades-bloque-2-sqlite.js",
+    "test:oportunidades:postgres-local": "node scripts/test-oportunidades-postgres-local.js",
+    "simulate:oportunidades:fase-a": "node scripts/simulate-oportunidades-fase-a-postgres.js",
+    "backup:oportunidades:fase-a": "node scripts/backup-oportunidades-fase-a-postgres.js",
+    "validate:oportunidades:fase-a": "node scripts/validate-oportunidades-fase-a-postgres.js"
   },
   "keywords": [],
   "author": "",
