@@ -211,6 +211,18 @@
                                 </div>
                             </div>
 
+                            <label class="pipeline-etapa-movil">
+                                <span>Etapa visible</span>
+                                <select id="inicioEtapaMovil" data-select-personalizado
+                                    onchange="cambiarEtapaMovilPipeline(this.value)">
+                                    <option value="Inicio">Inicio</option>
+                                    <option value="Interesados">Interesados</option>
+                                    <option value="Documentación">Documentación</option>
+                                    <option value="Auditoría">Auditoría</option>
+                                    <option value="Afiliados">Afiliados</option>
+                                </select>
+                            </label>
+
                             <div id="inicioPipeline" class="pipeline-board" aria-live="polite"></div>
                         </section>
 

@@ -232,6 +232,19 @@ const ETAPAS_OPORTUNIDAD = [
     "Afiliados"
 ];
 
+const ESTADOS_PAGO_DOCUMENTACION = [
+    "sin_confirmar",
+    "pendiente",
+    "recibido"
+];
+
+const ESTADOS_CLAVE_FISCAL = [
+    "sin_confirmar",
+    "pendiente",
+    "recibida",
+    "no_requiere"
+];
+
 const CODIGOS_PROCEDENCIA_SELECCIONABLES = [
     "base",
     "base_clinica",
@@ -1365,6 +1378,13 @@ db.serialize(() => {
         procedencia_atribucion TEXT NOT NULL DEFAULT 'sin_informar'
             CHECK (procedencia_atribucion IN ('contemporanea', 'retrospectiva', 'sin_informar')),
         procedencia_atribuida_en DATETIME,
+        pago_estado TEXT NOT NULL DEFAULT 'sin_confirmar'
+            CHECK (pago_estado IN ('sin_confirmar', 'pendiente', 'recibido')),
+        clave_fiscal_estado TEXT NOT NULL DEFAULT 'sin_confirmar'
+            CHECK (clave_fiscal_estado IN ('sin_confirmar', 'pendiente', 'recibida', 'no_requiere')),
+        preingreso_solicitado INTEGER NOT NULL DEFAULT 0
+            CHECK (preingreso_solicitado IN (0, 1))
+            CHECK (preingreso_solicitado = 0 OR etapa = 'Auditoría'),
         fecha_inicio DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         fecha_cierre DATETIME,
         origen TEXT NOT NULL DEFAULT 'aplicacion',
@@ -1414,6 +1434,7 @@ db.serialize(() => {
         oportunidad_id INTEGER NOT NULL REFERENCES oportunidades_crm(id) ON DELETE CASCADE,
         accion TEXT NOT NULL CHECK (accion IN (
             'backfill_creacion', 'creacion', 'cambio_etapa',
+            'cambio_documentacion', 'cambio_preingreso',
             'reasignacion_responsable', 'vinculacion_cotizacion',
             'cierre', 'reapertura'
         )),
@@ -5882,6 +5903,9 @@ async function obtenerPipelineInicio(req) {
             oportunidades_crm.primera_cotizacion_id,
             oportunidades_crm.fecha_inicio,
             oportunidades_crm.procedencia_atribucion,
+            oportunidades_crm.pago_estado,
+            oportunidades_crm.clave_fiscal_estado,
+            oportunidades_crm.preingreso_solicitado,
             clientes.nombre,
             clientes.dni,
             COALESCE(clientes.telefono_normalizado, clientes.celular) AS celular,
@@ -6068,11 +6092,19 @@ async function cambiarEtapaOportunidad(tx, req, oportunidad, etapaNueva) {
         return { etapa: etapaNueva, sin_cambios: true };
     }
 
+    const preingresoActivo = Boolean(Number(oportunidad.preingreso_solicitado));
+    const limpiarPreingreso = preingresoActivo && etapaNueva === "Afiliados";
+    if (preingresoActivo && etapaAnterior === "Auditoría" && !["Auditoría", "Afiliados"].includes(etapaNueva)) {
+        throw errorHttp(409, "Desmarcá Preingreso antes de mover la oportunidad a otra etapa");
+    }
+
     await tx.run(
         `UPDATE oportunidades_crm
-         SET etapa = ?, fecha_actualizacion = CURRENT_TIMESTAMP
+         SET etapa = ?,
+             preingreso_solicitado = CASE WHEN ? THEN FALSE ELSE preingreso_solicitado END,
+             fecha_actualizacion = CURRENT_TIMESTAMP
          WHERE id = ? AND estado = 'activa'`,
-        [etapaNueva, oportunidad.id]
+        [etapaNueva, limpiarPreingreso, oportunidad.id]
     );
     const etapaLegacy = etapaOportunidadALegacy(etapaNueva);
     let resultadoPosventa = {};
@@ -6098,6 +6130,29 @@ async function cambiarEtapaOportunidad(tx, req, oportunidad, etapaNueva) {
     );
 
     const usuario = await obtenerUsuarioAutenticado(req, tx);
+    if (limpiarPreingreso) {
+        await tx.run(
+            `
+            INSERT INTO oportunidad_historial (
+                oportunidad_id, accion, etapa_anterior, etapa_nueva,
+                usuario_id, usuario_nombre_snapshot, detalle, clave_idempotencia
+            ) VALUES (?, 'cambio_preingreso', ?, ?, ?, ?, ?, ?)
+            `,
+            [
+                oportunidad.id,
+                etapaAnterior,
+                etapaNueva,
+                usuario?.id || null,
+                req.user.usuario,
+                JSON.stringify({
+                    anterior: true,
+                    nuevo: false,
+                    motivo: "avance_afiliados"
+                }),
+                `cambio-preingreso-afiliados-${oportunidad.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+            ]
+        );
+    }
     await tx.run(
         `
         INSERT INTO oportunidad_historial (
@@ -6119,6 +6174,7 @@ async function cambiarEtapaOportunidad(tx, req, oportunidad, etapaNueva) {
     return {
         etapa: etapaNueva,
         cotizacion_principal_id: oportunidad.primera_cotizacion_id,
+        preingreso_solicitado: limpiarPreingreso ? false : preingresoActivo,
         ...resultadoPosventa
     };
 }
@@ -6146,6 +6202,159 @@ app.put("/oportunidades/:id/etapa", verificarToken, async (req, res) => {
     } catch (error) {
         res.status(error.status || 500).json({
             error: error.status ? error.message : "No se pudo actualizar la etapa"
+        });
+    }
+});
+
+function documentacionCompleta(pagoEstado, claveFiscalEstado) {
+    return pagoEstado === "recibido"
+        && ["recibida", "no_requiere"].includes(claveFiscalEstado);
+}
+
+app.put("/oportunidades/:id/documentacion", verificarToken, async (req, res) => {
+    const body = req.body || {};
+    const incluyePago = Object.prototype.hasOwnProperty.call(body, "pago_estado");
+    const incluyeClave = Object.prototype.hasOwnProperty.call(body, "clave_fiscal_estado");
+    const pagoEstado = incluyePago ? String(body.pago_estado || "").trim() : null;
+    const claveFiscalEstado = incluyeClave
+        ? String(body.clave_fiscal_estado || "").trim()
+        : null;
+
+    if (!incluyePago && !incluyeClave) {
+        return res.status(400).json({ error: "No se informó ningún estado de documentación" });
+    }
+    if (incluyePago && !ESTADOS_PAGO_DOCUMENTACION.includes(pagoEstado)) {
+        return res.status(400).json({ error: "Estado de pago inválido" });
+    }
+    if (incluyeClave && !ESTADOS_CLAVE_FISCAL.includes(claveFiscalEstado)) {
+        return res.status(400).json({ error: "Estado de clave fiscal inválido" });
+    }
+
+    try {
+        const resultado = await db.transaction(async tx => {
+            const oportunidad = await obtenerOportunidadPermitida(
+                req,
+                req.params.id,
+                tx,
+                true
+            );
+            if (oportunidad.estado !== "activa") {
+                throw errorHttp(409, "La oportunidad ya no está activa");
+            }
+            if (oportunidad.etapa !== "Documentación") {
+                throw errorHttp(409, "Los controles sólo pueden modificarse en Documentación");
+            }
+
+            const pagoNuevo = incluyePago ? pagoEstado : oportunidad.pago_estado;
+            const claveNueva = incluyeClave ? claveFiscalEstado : oportunidad.clave_fiscal_estado;
+            const cambios = {};
+            if (pagoNuevo !== oportunidad.pago_estado) {
+                cambios.pago_estado = {
+                    anterior: oportunidad.pago_estado,
+                    nuevo: pagoNuevo
+                };
+            }
+            if (claveNueva !== oportunidad.clave_fiscal_estado) {
+                cambios.clave_fiscal_estado = {
+                    anterior: oportunidad.clave_fiscal_estado,
+                    nuevo: claveNueva
+                };
+            }
+
+            if (Object.keys(cambios).length) {
+                await tx.run(
+                    `UPDATE oportunidades_crm
+                     SET pago_estado = ?, clave_fiscal_estado = ?,
+                         fecha_actualizacion = CURRENT_TIMESTAMP
+                     WHERE id = ?`,
+                    [pagoNuevo, claveNueva, oportunidad.id]
+                );
+                const usuario = await obtenerUsuarioAutenticado(req, tx);
+                await tx.run(
+                    `INSERT INTO oportunidad_historial (
+                        oportunidad_id, accion, etapa_anterior, etapa_nueva,
+                        usuario_id, usuario_nombre_snapshot, detalle, clave_idempotencia
+                    ) VALUES (?, 'cambio_documentacion', ?, ?, ?, ?, ?, ?)`,
+                    [
+                        oportunidad.id,
+                        oportunidad.etapa,
+                        oportunidad.etapa,
+                        usuario?.id || null,
+                        req.user.usuario,
+                        JSON.stringify({ cambios }),
+                        `cambio-documentacion-${oportunidad.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+                    ]
+                );
+            }
+
+            return {
+                pago_estado: pagoNuevo,
+                clave_fiscal_estado: claveNueva,
+                documentacion_completa: documentacionCompleta(pagoNuevo, claveNueva),
+                sin_cambios: !Object.keys(cambios).length
+            };
+        });
+        res.json({ success: true, ...resultado });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo actualizar la documentación"
+        });
+    }
+});
+
+app.put("/oportunidades/:id/preingreso", verificarToken, async (req, res) => {
+    const solicitado = req.body?.solicitado;
+    if (typeof solicitado !== "boolean") {
+        return res.status(400).json({ error: "El estado de Preingreso es inválido" });
+    }
+
+    try {
+        const resultado = await db.transaction(async tx => {
+            const oportunidad = await obtenerOportunidadPermitida(
+                req,
+                req.params.id,
+                tx,
+                true
+            );
+            if (oportunidad.estado !== "activa") {
+                throw errorHttp(409, "La oportunidad ya no está activa");
+            }
+            if (oportunidad.etapa !== "Auditoría") {
+                throw errorHttp(409, "Preingreso sólo puede modificarse en Auditoría");
+            }
+
+            const anterior = Boolean(Number(oportunidad.preingreso_solicitado));
+            const nuevo = solicitado;
+            if (anterior !== nuevo) {
+                await tx.run(
+                    `UPDATE oportunidades_crm
+                     SET preingreso_solicitado = ?, fecha_actualizacion = CURRENT_TIMESTAMP
+                     WHERE id = ?`,
+                    [nuevo, oportunidad.id]
+                );
+                const usuario = await obtenerUsuarioAutenticado(req, tx);
+                await tx.run(
+                    `INSERT INTO oportunidad_historial (
+                        oportunidad_id, accion, etapa_anterior, etapa_nueva,
+                        usuario_id, usuario_nombre_snapshot, detalle, clave_idempotencia
+                    ) VALUES (?, 'cambio_preingreso', ?, ?, ?, ?, ?, ?)`,
+                    [
+                        oportunidad.id,
+                        oportunidad.etapa,
+                        oportunidad.etapa,
+                        usuario?.id || null,
+                        req.user.usuario,
+                        JSON.stringify({ anterior, nuevo, motivo: "modificacion_manual" }),
+                        `cambio-preingreso-${oportunidad.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+                    ]
+                );
+            }
+            return { preingreso_solicitado: nuevo, sin_cambios: anterior === nuevo };
+        });
+        res.json({ success: true, ...resultado });
+    } catch (error) {
+        res.status(error.status || 500).json({
+            error: error.status ? error.message : "No se pudo actualizar Preingreso"
         });
     }
 });

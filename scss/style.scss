@@ -1699,6 +1699,10 @@ button {
     scroll-snap-type: inline proximity;
 }
 
+.pipeline-etapa-movil {
+    display: none;
+}
+
 .pipeline-column {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
@@ -1802,6 +1806,103 @@ button {
     border-color: #89bddb;
     background: #e4f2fa;
     color: $secondary;
+}
+
+.pipeline-documentacion {
+    display: grid;
+    gap: 7px;
+    padding: 7px;
+    border: 1px solid rgba(174, 112, 12, 0.2);
+    border-radius: 7px;
+    background: rgba(255, 250, 235, 0.78);
+
+    label {
+        display: grid;
+        min-width: 0;
+        gap: 4px;
+
+        > span {
+            color: #4c6172;
+            font-size: 10px;
+            font-weight: 800;
+        }
+    }
+
+    select,
+    .select-personalizado-trigger {
+        width: 100%;
+        min-width: 0;
+        min-height: 30px;
+        margin: 0;
+        padding: 5px 8px;
+        border-radius: 7px;
+        font-size: 11px;
+    }
+}
+
+.pipeline-documentacion-estado {
+    padding: 5px 7px;
+    border-radius: 6px;
+    font-size: 10px;
+    line-height: 1.3;
+
+    &.sin-confirmar {
+        background: #edf2f6;
+        color: #536675;
+    }
+
+    &.pendiente {
+        background: #fff0c7;
+        color: #8a5a00;
+    }
+
+    &.completa {
+        background: #dff3e5;
+        color: #237542;
+    }
+}
+
+.pipeline-card-preingreso {
+    border-color: #e5a33b;
+    border-left-color: #d97908;
+    background: #fff3df;
+    box-shadow: 0 5px 16px rgba(191, 104, 5, 0.15);
+}
+
+.pipeline-preingreso-control {
+    display: grid;
+    gap: 6px;
+}
+
+.pipeline-preingreso-etiqueta {
+    width: fit-content;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #dd7908;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+}
+
+.pipeline-card .pipeline-preingreso-btn {
+    border: 1px solid #e3ad62;
+    background: #fff8ed;
+    color: #8f5005;
+    font-weight: 800;
+
+    &.activo {
+        border-color: #d97908;
+        background: #f9dfb9;
+    }
+
+    &:hover,
+    &:focus-visible {
+        background: #f7d49f;
+        color: #6d3b00;
+        transform: none;
+        box-shadow: none;
+    }
 }
 
 .pipeline-cotizaciones {
@@ -2687,6 +2788,7 @@ button {
     }
 
     .pipeline-board {
+        grid-template-columns: repeat(5, minmax(280px, 1fr));
         height: clamp(
             330px,
             calc(100dvh - var(--topbar-height) - 205px),
@@ -2712,6 +2814,77 @@ button {
 }
 
 @media (max-width: 767px) {
+    .inicio-panel-pipeline .inicio-section-bar {
+        display: grid;
+        width: 100%;
+        min-width: 0;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+    }
+
+    .inicio-panel-pipeline .inicio-section-bar h3,
+    .inicio-seguimiento-controles {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .inicio-seguimiento-controles {
+        justify-content: stretch;
+    }
+
+    .pipeline-etapa-movil {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 10px;
+
+        > span {
+            color: $secondary;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        select,
+        .select-personalizado-trigger {
+            width: 100%;
+            min-width: 0;
+            margin: 0;
+        }
+    }
+
+    .pipeline-board {
+        display: block;
+        height: clamp(420px, 62dvh, 620px);
+        overflow: hidden;
+        padding-bottom: 0;
+    }
+
+    .pipeline-column {
+        display: none;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .pipeline-column.pipeline-column-activa {
+        display: grid;
+    }
+
+    .pipeline-card,
+    .pipeline-cotizacion-item,
+    .pipeline-selector,
+    .pipeline-selector select,
+    .pipeline-card button {
+        max-width: 100%;
+    }
+
+    .pipeline-card-head strong,
+    .pipeline-card p,
+    .pipeline-telefono > span,
+    .pipeline-cotizacion-item span,
+    .pipeline-cotizacion-item small {
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+
     .inicio-agenda-dialog > .inicio-side {
         grid-template-columns: 1fr;
         grid-template-rows: auto minmax(280px, 1fr);

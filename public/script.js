@@ -1173,6 +1173,7 @@ let inicioCargaCompleta = false;
 let inicioAsesoraSeleccionada = "";
 let inicioBusquedaPipeline = "";
 let inicioEtapaPipeline = "";
+let inicioEtapaMovil = "Inicio";
 let temporizadorBusquedaPipeline = null;
 let estadoModalTareas = "pendiente";
 let tareasModalActuales = [];
@@ -1242,7 +1243,28 @@ async function cambiarAsesoraInicio() {
 
 async function cambiarFiltrosPipeline() {
     sincronizarFiltrosPipelineDesdeDom();
+    if (inicioEtapaPipeline) cambiarEtapaMovilPipeline(inicioEtapaPipeline);
     await cargarInicioCrm();
+}
+
+function cambiarEtapaMovilPipeline(etapa) {
+    if (!ETAPAS_PIPELINE.includes(etapa)) return;
+
+    inicioEtapaMovil = etapa;
+    const selector = document.getElementById("inicioEtapaMovil");
+    if (selector && selector.value !== etapa) {
+        selector.value = etapa;
+        if (typeof sincronizarSelectPersonalizado === "function") {
+            sincronizarSelectPersonalizado(selector);
+        }
+    }
+
+    document.querySelectorAll("#inicioPipeline .pipeline-column").forEach(columna => {
+        columna.classList.toggle(
+            "pipeline-column-activa",
+            columna.dataset.etapa === inicioEtapaMovil
+        );
+    });
 }
 
 function programarBusquedaPipeline() {
@@ -1996,6 +2018,136 @@ function renderCotizacionesOportunidad(oportunidad) {
     `;
 }
 
+const ETIQUETAS_PAGO_DOCUMENTACION = {
+    sin_confirmar: "Sin confirmar",
+    pendiente: "Pendiente",
+    recibido: "Recibido"
+};
+
+const ETIQUETAS_CLAVE_FISCAL = {
+    sin_confirmar: "Sin confirmar",
+    pendiente: "Pendiente",
+    recibida: "Recibida",
+    no_requiere: "No requiere"
+};
+
+function estadoVisualDocumentacion(oportunidad) {
+    const pago = oportunidad.pago_estado || "sin_confirmar";
+    const clave = oportunidad.clave_fiscal_estado || "sin_confirmar";
+    const completa = pago === "recibido" && ["recibida", "no_requiere"].includes(clave);
+
+    if (completa) return { clase: "completa", texto: "Documentación completa" };
+    if (pago === "sin_confirmar" || clave === "sin_confirmar") {
+        const sinConfirmar = [
+            pago === "sin_confirmar" ? "pago" : "",
+            clave === "sin_confirmar" ? "clave fiscal" : ""
+        ].filter(Boolean).join(" y ");
+        return { clase: "sin-confirmar", texto: `Sin confirmar: ${sinConfirmar}` };
+    }
+    if (pago === "pendiente" && clave === "pendiente") {
+        return { clase: "pendiente", texto: "Ambos pendientes" };
+    }
+    if (pago === "pendiente") {
+        return { clase: "pendiente", texto: "Pendiente de pago" };
+    }
+    return { clase: "pendiente", texto: "Pendiente de clave fiscal" };
+}
+
+function opcionesControlDocumentacion(opciones, actual) {
+    return Object.entries(opciones).map(([valor, etiqueta]) => `
+        <option value="${valor}" ${valor === actual ? "selected" : ""}>${etiqueta}</option>
+    `).join("");
+}
+
+function renderControlesDocumentacion(oportunidad) {
+    if (oportunidad.etapa !== "Documentación") return "";
+    const pago = oportunidad.pago_estado || "sin_confirmar";
+    const clave = oportunidad.clave_fiscal_estado || "sin_confirmar";
+    const estado = estadoVisualDocumentacion(oportunidad);
+
+    return `
+        <section class="pipeline-documentacion" data-no-drag>
+            <strong class="pipeline-documentacion-estado ${estado.clase}">${estado.texto}</strong>
+            <label>
+                <span>Pago</span>
+                <select data-select-personalizado
+                    onchange="actualizarDocumentacionPipeline(${oportunidad.id}, 'pago_estado', this.value)">
+                    ${opcionesControlDocumentacion(ETIQUETAS_PAGO_DOCUMENTACION, pago)}
+                </select>
+            </label>
+            <label>
+                <span>Clave fiscal</span>
+                <select data-select-personalizado
+                    onchange="actualizarDocumentacionPipeline(${oportunidad.id}, 'clave_fiscal_estado', this.value)">
+                    ${opcionesControlDocumentacion(ETIQUETAS_CLAVE_FISCAL, clave)}
+                </select>
+            </label>
+        </section>
+    `;
+}
+
+function renderControlPreingreso(oportunidad) {
+    if (oportunidad.etapa !== "Auditoría") return "";
+    const solicitado = Boolean(Number(oportunidad.preingreso_solicitado));
+    return `
+        <div class="pipeline-preingreso-control" data-no-drag>
+            ${solicitado ? '<strong class="pipeline-preingreso-etiqueta">Preingreso</strong>' : ""}
+            <button type="button" class="pipeline-preingreso-btn ${solicitado ? "activo" : ""}"
+                onclick="actualizarPreingresoPipeline(${oportunidad.id}, ${solicitado ? "false" : "true"})">
+                ${solicitado ? "Desmarcar Preingreso" : "Marcar Preingreso"}
+            </button>
+        </div>
+    `;
+}
+
+async function actualizarDocumentacionPipeline(oportunidadId, campo, valor) {
+    mostrarLoader();
+    try {
+        const res = await fetch(`/oportunidades/${oportunidadId}/documentacion`, {
+            method: "PUT",
+            headers: authHeaders(),
+            body: JSON.stringify({ [campo]: valor })
+        });
+        if (await manejarError(res)) return;
+        const datos = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            mostrarToast(datos.error || "No se pudo actualizar la documentación", "error");
+            await cargarInicioCrm(true);
+            return;
+        }
+        mostrarToast("Documentación actualizada", "success");
+        await actualizarInicioCoordinado();
+    } catch (error) {
+        mostrarToast("No se pudo actualizar la documentación", "error");
+        await cargarInicioCrm(true);
+    } finally {
+        ocultarLoader();
+    }
+}
+
+async function actualizarPreingresoPipeline(oportunidadId, solicitado) {
+    mostrarLoader();
+    try {
+        const res = await fetch(`/oportunidades/${oportunidadId}/preingreso`, {
+            method: "PUT",
+            headers: authHeaders(),
+            body: JSON.stringify({ solicitado })
+        });
+        if (await manejarError(res)) return;
+        const datos = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            mostrarToast(datos.error || "No se pudo actualizar Preingreso", "error");
+            return;
+        }
+        mostrarToast(solicitado ? "Preingreso marcado" : "Preingreso desmarcado", "success");
+        await actualizarInicioCoordinado();
+    } catch (error) {
+        mostrarToast("No se pudo actualizar Preingreso", "error");
+    } finally {
+        ocultarLoader();
+    }
+}
+
 function renderPipelineCard(oportunidad) {
     const etapa = oportunidad.etapa || "Inicio";
     const principal = (oportunidad.cotizaciones || []).find(
@@ -2006,10 +2158,11 @@ function renderPipelineCard(oportunidad) {
             ${escaparHtml(participante.nombre)}${participante.es_responsable ? " · Responsable" : ""}
         </span>
     `).join("");
+    const preingreso = Boolean(Number(oportunidad.preingreso_solicitado));
 
     return `
         <article
-            class="pipeline-card ${etapaClase(etapa)} ${claseColorPosventa(principal)}"
+            class="pipeline-card ${etapaClase(etapa)} ${claseColorPosventa(principal)} ${preingreso ? "pipeline-card-preingreso" : ""}"
             draggable="true"
             data-oportunidad-id="${oportunidad.id}"
             ondragstart="iniciarArrastrePipeline(event, ${oportunidad.id})"
@@ -2022,6 +2175,8 @@ function renderPipelineCard(oportunidad) {
             ${oportunidad.dni ? `<p>DNI ${escaparHtml(oportunidad.dni)}</p>` : ""}
             ${oportunidad.procedencia ? `<p>Procedencia: ${escaparHtml(oportunidad.procedencia)}</p>` : ""}
             <div class="pipeline-participantes">${participantes}</div>
+            ${renderControlesDocumentacion(oportunidad)}
+            ${renderControlPreingreso(oportunidad)}
             ${renderIndicadorPosventaPipeline(principal)}
             ${renderProximaTareaOportunidad(oportunidad)}
             ${renderCotizacionesOportunidad(oportunidad)}
@@ -2371,7 +2526,7 @@ function renderPipelineInicio(pipeline = [], estado = "ready") {
 
         return `
             <section
-                class="pipeline-column ${etapaClase(etapa)}"
+                class="pipeline-column ${etapaClase(etapa)} ${etapa === inicioEtapaMovil ? "pipeline-column-activa" : ""}"
                 data-etapa="${etapa}"
                 ondragover="permitirSoltarPipeline(event)"
                 ondrop="soltarPipeline(event, '${etapa}')"

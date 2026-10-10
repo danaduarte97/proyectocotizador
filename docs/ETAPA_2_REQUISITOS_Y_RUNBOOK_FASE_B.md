@@ -29,8 +29,10 @@ una vez que el modelo base de oportunidades exista y haya sido validado.
 
 ### Bloque 3 — Documentación y Auditoría
 
-- Pago pendiente/completo.
-- Clave fiscal pendiente/completa.
+- Pago: sin confirmar, pendiente o recibido.
+- Clave fiscal: sin confirmar, pendiente, recibida o no requiere.
+- La documentación está completa sólo con pago recibido y clave fiscal recibida
+  o marcada como no requiere. Completarla no mueve automáticamente la etapa.
 - Estado manual `Preingreso solicitado`.
 - Auditoría completa de los cambios.
 - Distinción visual y filtro por Preingreso.
@@ -53,24 +55,26 @@ Cuando el valor es verdadero:
 - no se crea ni actualiza una afiliación;
 - no se completa una fecha de alta;
 - no se generan tareas de alta ni de Posventa;
-- no se permite mover la oportunidad fuera de Auditoría hasta desmarcarlo.
+- puede avanzar a Afiliados sin desmarcarlo manualmente; esa transición limpia
+  la marca dentro de la misma transacción y registra el motivo en el historial;
+- para cualquier otra salida de Auditoría debe desmarcarse primero.
 
 Marcar y desmarcar son acciones explícitas y auditables. No se infiere el valor
 desde cotizaciones, tareas, documentación o afiliaciones.
 
 ### Modelo recomendado
 
-Agregar en una migración posterior del Bloque 3:
+Agregar en la migración del Bloque 3:
 
+- `oportunidades_crm.pago_estado TEXT NOT NULL DEFAULT 'sin_confirmar'`;
+- `oportunidades_crm.clave_fiscal_estado TEXT NOT NULL DEFAULT 'sin_confirmar'`;
 - `oportunidades_crm.preingreso_solicitado BOOLEAN NOT NULL DEFAULT FALSE`;
-- `oportunidades_crm.preingreso_actualizado_en TIMESTAMPTZ`;
-- `oportunidades_crm.preingreso_actualizado_por_usuario_id BIGINT NULL`, con FK
-  a `usuarios(id)` y `ON DELETE SET NULL`.
 
-La oportunidad conserva el estado actual para consultas y filtros eficientes.
-Cada modificación agrega además un evento en `oportunidad_historial` con una
-nueva acción `cambio_preingreso`, snapshot del usuario y detalle con valor
-anterior y nuevo. Así, eliminar o renombrar una cuenta no borra la auditoría.
+La oportunidad conserva los estados actuales para consultas eficientes. Cada
+modificación agrega además un evento en `oportunidad_historial` con acción
+`cambio_documentacion` o `cambio_preingreso`, snapshot del usuario y detalle
+con valores anteriores y nuevos. Así, eliminar o renombrar una cuenta no borra
+la auditoría.
 
 Se recomienda una restricción que sólo permita el valor verdadero cuando
 `etapa = 'Auditoría'`. El backend debe actualizar la oportunidad y crear el
@@ -99,7 +103,7 @@ la asesora sea la responsable principal.
 
 - marcar y desmarcar en Auditoría;
 - rechazar marcado fuera de Auditoría;
-- bloquear movimiento fuera de Auditoría mientras está marcado;
+- permitir el movimiento a Afiliados y limpiar la marca en forma auditable;
 - registrar dos eventos diferentes al marcar y desmarcar;
 - concurrencia entre cambio de etapa y cambio de preingreso;
 - permisos de participante, no participante y Administración;
@@ -181,9 +185,10 @@ es un control de seguridad ni la fuente de verdad.
 4. **Color de Preingreso:** naranja. El tono exacto se definirá en la propuesta
    visual con contraste accesible y sin confundirse con Afiliado, mora o error.
 
-Como consecuencia de la regla ya definida de que una oportunidad marcada debe
-permanecer en Auditoría, el cambio de etapa se bloqueará hasta que una persona
-autorizada desmarque Preingreso explícitamente. No se desmarca automáticamente.
+Una oportunidad marcada permanece en Auditoría salvo que avance a Afiliados.
+Ese avance está permitido y desmarca Preingreso automáticamente, dejando el
+evento correspondiente en el historial. Otras salidas requieren desmarcarlo de
+forma explícita.
 
 ## Runbook final para ejecutar la Fase B
 
